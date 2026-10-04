@@ -80,6 +80,8 @@ Verse saves every object with its package path, its class name and an `x_` key p
 the first value. Prism therefore saves a list held by a model as **one array per field** when its type is flat (only
 `Int`, `Float`, `Bool`, `String` and enum fields): `Mines PlacedMine[]` becomes `Mines_Id:[]int`, `Mines_X:[]float`
 and so on in the record. The model still sees a list of `placed_mine` objects; only saving and loading convert.
+Measured in a live session (`examples/measure`): a mine takes 208 bytes as an object and 29 bytes in columns, so 7×
+more fit in the same save.
 
 - Adding a field to the type adds a column. Old saves lack it, and every item gets the field's default.
 - Removing or retyping a field of the type is a breaking change, as for any saved field.

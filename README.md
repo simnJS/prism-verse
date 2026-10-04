@@ -3,8 +3,8 @@
 **Typed player data for UEFN Verse.** Write your player save once, in a small schema. Prism generates the Verse code
 that loads, validates, migrates and saves it, and refuses any edit that would break saves you have already published.
 
-> **Status: alpha.** Generated code verified with UEFN 42.30: compile, BuildAll and a self-test in a live session
-> (0.1: 29 checks; the 0.2 run is next).
+> **Status: alpha.** Generated code verified with UEFN 42.30: compile, BuildAll, and for 0.2 a 33-check self-test in
+> a live session.
 
 ```
 save.prism ──prism-verse generate──▶ player_save_records.verse   the persisted contract
@@ -24,7 +24,8 @@ The mistakes are silent:
 
 Prism generates the four places from one schema, checks every edit against what you published, and guards every
 write. It also saves lists compactly: Verse's format repeats about 200 bytes of metadata for every object in a list,
-so Prism saves a list of flat items as one array per field ("columns") and rebuilds the objects on load.
+so Prism saves a list of flat items as one array per field ("columns") and rebuilds the objects on load. Measured in
+a live session: a mine takes 208 bytes as an object and 29 bytes in columns, so 7× more fit in the same save.
 
 ## Install
 
