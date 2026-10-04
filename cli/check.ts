@@ -1,6 +1,6 @@
 import type { Reporter } from "./diagnostics.ts";
-import { persistedDefaultOf, verseTypeOf } from "./generate.ts";
-import { persistedFields, type ModelDecl, type Schema, type TypeDecl } from "./schema.ts";
+import type { Schema } from "./schema.ts";
+import { persistedRecords } from "./shape.ts";
 import type { SourceFile, Span } from "./source.ts";
 import { normalizeValue, type Scan } from "./verse_scan.ts";
 
@@ -8,8 +8,8 @@ import { normalizeValue, type Scan } from "./verse_scan.ts";
 export function checkAgainst(schema: Schema, scan: Scan, reporter: Reporter): void {
   const at = (span: Span): { file: SourceFile; span: Span } => ({ file: schema.file, span });
   const where = (file: SourceFile, span: Span): string => `${file.name}:${file.position(span.start).line}`;
-  const decls: (ModelDecl | TypeDecl)[] = [...schema.models, ...schema.types];
-  for (const d of decls) {
+  for (const r of persistedRecords(schema)) {
+    const d = r.decl;
     const cls = scan.classes.find((c) => c.name === d.recordClass);
     if (!cls) {
       const known = scan.classes.map((c) => `\`${c.name}\``).join(", ");
@@ -19,24 +19,25 @@ export function checkAgainst(schema: Schema, scan: Scan, reporter: Reporter): vo
       continue;
     }
     const verseFields = new Map(cls.fields.map((f) => [f.name, f]));
-    for (const f of persistedFields(d)) {
-      const vf = verseFields.get(f.persisted);
+    for (const sf of r.fields) {
+      const f = sf.field;
+      const vf = verseFields.get(sf.name);
       if (!vf) {
-        reporter.error("P202", `\`${f.persisted}\` is not a field of \`${cls.name}\` (${where(cls.file, cls.span)})`, at(f.node.name.span), {
-          help: f.persisted === f.name ? "if the saved name differs, set `@map(\"SavedName\")`" : "check the `@map` name",
+        reporter.error("P202", `\`${sf.name}\` is not a field of \`${cls.name}\` (${where(cls.file, cls.span)})`, at((sf.list ?? f).node.name.span), {
+          help: sf.list ? `a list of \`${sf.list.type.base.kind === "record" ? sf.list.type.base.decl.name : "?"}\` is saved in columns; add \`@@rows\` to keep objects` : f.persisted === f.name ? "if the saved name differs, set `@map(\"SavedName\")`" : "check the `@map` name",
         });
         continue;
       }
-      verseFields.delete(f.persisted);
-      const type = verseTypeOf(schema, f.type);
+      verseFields.delete(sf.name);
+      const type = sf.type;
       if (type !== vf.type) {
-        reporter.error("P203", `\`${f.persisted}\` is \`${type}\` in the schema but \`${vf.type}\` in ${where(cls.file, vf.span)}`, at(f.node.type.span));
+        reporter.error("P203", `\`${sf.name}\` is \`${type}\` in the schema but \`${vf.type}\` in ${where(cls.file, vf.span)}`, at(f.node.type.span));
         continue;
       }
-      const def = normalizeValue(persistedDefaultOf(schema, f));
+      const def = normalizeValue(sf.default);
       const verseDefault = vf.default === undefined ? undefined : normalizeValue(vf.default);
       if (verseDefault !== def) {
-        reporter.error("P204", `default of \`${f.persisted}\` is \`${def}\` in the schema but \`${verseDefault ?? "(none)"}\` in ${where(cls.file, vf.span)}`, at((f.def ?? f.node.name).span), {
+        reporter.error("P204", `default of \`${sf.name}\` is \`${def}\` in the schema but \`${verseDefault ?? "(none)"}\` in ${where(cls.file, vf.span)}`, at((f.def ?? f.node.name).span), {
           help: "persisted defaults must match exactly; give new players another value with `@initial`",
         });
       }

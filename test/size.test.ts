@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { test } from "node:test";
 import { persistedFields, type FieldType, type ModelDecl, type Schema, type TypeDecl } from "../cli/schema.ts";
+import { shapeFields } from "../cli/shape.ts";
 import { COST, sizeTerms } from "../cli/size.ts";
 import { analyze, ROOT } from "./helpers.ts";
 
@@ -52,9 +53,22 @@ function serialize(t: FieldType, v: Value, schema: Schema): string {
   return String(v);
 }
 
+// A model's lists of flat types are saved as one array per field (columns), without per-item metadata.
 function serializeRecord(d: ModelDecl | TypeDecl, v: { [k: string]: Value }, schema: Schema): string {
   const parts = [`"$package_name":${jsonString(PACKAGE)}`, `"$class_name":${jsonString(d.recordClass)}`];
-  for (const f of persistedFields(d)) parts.push(`"x_${f.persisted}":${serialize(f.type, v[f.persisted]!, schema)}`);
+  if (d.kind === "type") {
+    for (const f of persistedFields(d)) parts.push(`"x_${f.persisted}":${serialize(f.type, v[f.persisted]!, schema)}`);
+    return `{${parts.join(",")}}`;
+  }
+  for (const sf of shapeFields(schema, d)) {
+    if (!sf.list) {
+      parts.push(`"x_${sf.name}":${serialize(sf.field.type, v[sf.name]!, schema)}`);
+      continue;
+    }
+    const items = v[sf.list.persisted] as { [k: string]: Value }[];
+    const column = items.map((item) => serialize(sf.field.type, item[sf.field.persisted]!, schema));
+    parts.push(`"x_${sf.name}":[${column.join(",")}]`);
+  }
   return `{${parts.join(",")}}`;
 }
 
@@ -86,6 +100,15 @@ function prismSize(d: ModelDecl | TypeDecl, v: { [k: string]: Value }): number {
       case "record":
         total += prismSize(t.decl, x as { [k: string]: Value });
         break;
+      case "columns": {
+        const items = x as { [k: string]: Value }[];
+        total += items.length * t.rowBytes;
+        for (const name of t.strings) {
+          const field = t.decl.fields.find((f) => `${t.field.persisted}_${f.persisted}` === name)!;
+          for (const item of items) total += (item[field.persisted] as string).length * COST.stringChar + COST.stringBase + COST.item;
+        }
+        break;
+      }
     }
   }
   return total;
@@ -98,6 +121,7 @@ const STRESS = `model Stress {
   Inner    Inner
   Child    Inner?
   Children Inner[]
+  Objects  Boxed[]
   Mode     Mode
   Modes    Mode[]
   Values   Float[]
@@ -107,6 +131,14 @@ type Inner {
   Label String
   Count Int
   Ok    Bool
+  Kind  Mode
+}
+
+type Boxed {
+  Label String
+  Count Int
+
+  @@rows
 }
 
 enum Mode { Easy Hard Nightmare }
@@ -115,6 +147,7 @@ enum Mode { Easy Hard Nightmare }
 for (const [name, text] of [
   ["the SellThings demo", readFileSync(join(ROOT, "examples/sellthings/save.prism"), "utf8")],
   ["the quickstart", readFileSync(join(ROOT, "examples/quickstart/save.prism"), "utf8")],
+  ["objects and columns", readFileSync(join(ROOT, "examples/measure/save.prism"), "utf8")],
   ["every kind of field", STRESS],
 ] as const) {
   test(`PrismSize never underestimates the serialized record: ${name}`, () => {

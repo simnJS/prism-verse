@@ -12,7 +12,7 @@ model PlayerSave {
   Level       Int   = 1   @min(1) @max(100)
   Cards       Card[]      @maxItems(50)
   NextCard    Int   = 1   @counter(Cards.Uid)
-  RecentDrops Int[]       @trim(head)
+  RecentDrops Int[]       @maxItems(100) @trim(head)
   LastSeen    Float = 0.0 @lastSeen
   Selected    Int   = -1  @transient
 }

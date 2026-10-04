@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.2.0 (unreleased)
+
+- **Lists in columns.** A list of a flat type held by a model (only `Int`, `Float`, `Bool`, `String` and enum fields)
+  is saved as one array per field instead of one object per item, without Verse's per-object metadata. The model's
+  API doesn't change. `@@rows` keeps objects for a format already published, and `import` adds it.
+- New warnings: `P042` (a list saved as objects because its type isn't flat), `P043` (`@@rows` without a published
+  shape that needs it).
+- `prism_runner.FlushSeconds` defaults to 1 s: a changed player is written at most once per second; `Commit` still
+  writes at the next tick.
+- `Push` on a list with `@maxItems` and `@trim(head)` drops the oldest item instead of failing (rolling history).
+- `PrismSize` follows the column format exactly; the upper-bound test covers columns.
+- Examples: the quickstart caps its history, `sellthings` is the real game's clean save in columns, `migration`
+  shows a `@@migrate` step, and `measure` compares objects and columns in the self-test.
+
 ## 0.1.0 (unreleased)
 
 First version.

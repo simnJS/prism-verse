@@ -236,3 +236,25 @@ save.prism:2:3 warning[P041]: list `Mines` has no `@maxItems`: its size is unbou
 2 |   Mines Int[]
   |   ^^^^^
   = help: cap it with `@maxItems(n)`, or mark it `@trim(head)` if old items can be dropped
+
+## P042 list saved as objects
+
+save.prism:2:3 warning[P042]: `Spots` is saved as objects, about 200 bytes of metadata per item: `Spot.Tags` is a list, an option or a type
+  |
+2 |   Spots Spot[] @maxItems(8)
+  |   ^^^^^
+  = help: keep the fields of `Spot` flat to save it in columns, or add `@@rows` to `type Spot` to keep this format
+
+save.prism:6:3 warning[P041]: list `Tags` has no `@maxItems`: its size is unbounded
+  |
+6 |   Tags Int[]
+  |   ^^^^
+  = help: cap it with `@maxItems(n)`, or mark it `@trim(head)` if old items can be dropped
+
+## P043 @@rows on a flat type
+
+save.prism:8:3 warning[P043]: `@@rows` saves `Mine` as objects, several times larger than columns
+  |
+8 |   @@rows
+  |   ^^^^^^
+  = help: remove `@@rows` unless saves in this format are already published

@@ -8,8 +8,8 @@ import { analyze, ROOT, UPDATE } from "./helpers.ts";
 
 function build(schemaPath: string, tweak: (text: string) => string = (t) => t, kind?: "player" | "memory"): GeneratedFile[] {
   const text = tweak(readFileSync(join(ROOT, schemaPath), "utf8"));
-  const { schema, codes } = analyze(text);
-  assert.deepEqual(codes, [], `${schemaPath} has errors`);
+  const { schema, codes, rendered } = analyze(text);
+  assert.deepEqual(codes, [], `${schemaPath} has errors:\n${rendered}`);
   if (kind) schema.settings.kind = kind;
   return generate(schema, { lib: "Prism", schemaName: "save.prism", schemaHash: schemaHash(text) });
 }
@@ -27,7 +27,7 @@ function compare(files: GeneratedFile[], dir: string): void {
 
 test("the examples hold the current generated output", () => {
   compare(build("examples/quickstart/save.prism", undefined, "memory"), "examples/quickstart");
-  compare(build("examples/sellthings/save.prism"), "examples/sellthings");
+  for (const example of ["sellthings", "migration", "measure"]) compare(build(`examples/${example}/save.prism`), `examples/${example}`);
 });
 
 test("golden: the coverage schema (every feature, compiled in UEFN)", () => {

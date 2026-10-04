@@ -47,7 +47,7 @@ are generated `<open>`, so values can be added after publishing.
 | `@initial(value)` | any field | Value for a brand-new player, when it differs from the persisted default. |
 | `@map("Name")` | persisted field | Field name in the saved data; the API keeps the schema name. |
 | `@min(v)` `@max(v)` | `Int`, `Float` | Clamped on load and by every setter. |
-| `@maxItems(n)` | list | Capped on load and by `Set`; `Push` fails when full. |
+| `@maxItems(n)` | list | Capped on load and by `Set`; `Push` fails when full, except on a `@trim(head)` list, where it drops the oldest item (a rolling history). |
 | `@trim(head)` `@trim(tail, 2)` | list | When the record doesn't fit, drop items from that end, by priority (1 first). **Only for data you can afford to lose** (history, logs). |
 | `@where(F)` | list | On load, keeps the items for which `F[It]` succeeds. |
 | `@valid(F)` `@valid(F, v)` | scalar, scalar list | On load, a value for which `F[It]` fails becomes the default (or `v`). |
@@ -70,24 +70,51 @@ Validators are Verse functions of your game: `(It:T)<computes><decides>:void`, o
 | `@@store("Name")` | model | Name of the `weak_map` variable (default: `PlayerStateSaves`). |
 | `@@onLoad(F)` | model | `F(Who:player, Model):void` runs once after each load (offline earnings, debug kits…). |
 | `@@migrate(N, F)` | model | A record with `Version < N` goes through `F(Rec):record`, then gets `Version = N`. |
+| `@@rows` | type | Saves the lists of this type as one object per item instead of columns (see below). |
 
 The current version of a model is its highest `@@migrate` step (1 without migrations).
+
+### Lists in columns
+
+Verse saves every object with its package path, its class name and an `x_` key per field: about 200 bytes before
+the first value. Prism therefore saves a list held by a model as **one array per field** when its type is flat (only
+`Int`, `Float`, `Bool`, `String` and enum fields): `Mines PlacedMine[]` becomes `Mines_Id:[]int`, `Mines_X:[]float`
+and so on in the record. The model still sees a list of `placed_mine` objects; only saving and loading convert.
+
+- Adding a field to the type adds a column. Old saves lack it, and every item gets the field's default.
+- Removing or retyping a field of the type is a breaking change, as for any saved field.
+- A type with a list, an option or a nested type can't be split into columns: its lists are saved as objects, and
+  `P042` says why. Lists inside a `type` are always objects.
+- `@@rows` keeps objects on purpose, for a format you already published (`import` adds it for you). Without that
+  reason, `P043` reminds you that columns are several times smaller.
 
 ### Verse pitfalls Prism catches
 
 - A field named like a Verse module of your project (`P033`): Verse reserves module names in the whole package.
 - A name that clashes with a built-in (`P028`): `Log`, `Round`, `player`… and macros like `profile`.
 - More than 4 persistent stores (`P025`), nested containers (`P029`), records containing themselves (`P026`).
-- Lists that can push the record past 256 KB (`P040`, `P041`).
+- Lists that can push the record past 256 KB (`P040`, `P041`), and lists saved as objects when they could be columns
+  (`P042`, `P043`).
 
 ## Migrations
 
 Persisted fields can only be added, never removed or retyped, so a change of meaning is a migration: mark the old
-field `@deprecated` (it stays readable), add the new one, and name a Verse function that converts the record.
+field `@deprecated` (it stays readable), add the new one, and name a Verse function that converts the record
+([examples/migration](../examples/migration)):
+
+```prisma
+model Wallet {
+  Version     Int   = 1 @version
+  LegacyCoins Int       @map("Coins") @deprecated
+  Coins       Float     @map("Money") @min(0.0)
+
+  @@migrate(2, MoneyToFloat)
+}
+```
 
 ```verse
-MoneyToFloat(Rec:player_saved)<transacts>:player_saved =
-    Rec.WithMoney(1.0 * Max(Rec.Coins, 0)).WithCrateWorth(1.0 * Max(Rec.CrateValue, 0))
+MoneyToFloat(Rec:wallet_record)<transacts>:wallet_record =
+    Rec.WithMoney(1.0 * Max(Rec.Coins, 0))
 ```
 
 Steps run in order on the persisted record (persisted names). The whole chain and the validation run before your
@@ -104,11 +131,11 @@ For `model PlayerSave` (names follow `@@map`, `@@store` and `methodPrefix`):
 | `SetCoins(V)`, `AddCoins(D)`, `ToggleX()` | Scalars: set (clamped), add, flip a `Bool`. All `<transacts>`. |
 | `SetCards(L)` | Plural: the whole list. |
 | `FindCard[Id]`, `UpsertCard[V]`, `DeleteCard[Id]` | Singular: one item of a list of a type with an `@id`. |
-| `PushEntry[V]`, `SetEntryAt[I, V]`, `DeleteEntryAt[I]` | Singular: one item of any other list. |
+| `PushEntry[V]`, `SetEntryAt[I, V]`, `DeleteEntryAt[I]` | Singular: one item of any other list (`PushEntry(V)` never fails on a capped `@trim(head)` list). |
 | `TakeNextCard()` | `@counter` fields: returns the next id and advances it. |
 | `Changed`, `FieldChanged`, `Notify()` | Change events. Setters queue them, and the runner signals them every tick. |
 | `SaveBlocked`, `ReadOnly`, `Dirty`, `OfflineSeconds` | Size block events, newer-save mode, unsaved changes, seconds since the last save. |
-| `Commit()` | Write at the next tick, even with `FlushSeconds`; rolled back with its transaction. |
+| `Commit()` | Write at the next tick, whatever `FlushSeconds`; rolled back with its transaction. |
 | `(P:player).GetPlayerSave[]` | The loaded model, from the session cache. Safe in an `if` head. |
 | `PlayerSaveStore` | `Acquire(P)` (load if needed), `FlushNow(P)`, `Close(P)`, `Reset(P)`. |
 
@@ -124,7 +151,7 @@ WatchCoins(Save:player_save)<suspends>:void =
 
 | Name | What |
 |---|---|
-| `prism_runner` | `Run(Playspace)`: loads players on join, writes changed players every tick (or every `FlushSeconds`), saved players every `HeartbeatSeconds`, and everyone when the round ends. |
+| `prism_runner` | `Run(Playspace)`: loads players on join, writes a changed player at most once per `FlushSeconds` (1 s), saved players every `HeartbeatSeconds`, and everyone when the round ends. |
 | `prism_store` | The interface every generated store implements; one runner can drive several stores. |
 | `prism_block` | Why a save was blocked (`TooLarge`). |
 | `PrismOfflineSeconds`, `PrismNow`, `PrismLog`, `PrismInt64` | Small helpers. |
@@ -145,9 +172,9 @@ save_component := class<final_super>(component):
 
 ## How saving works
 
-- **Write-through.** A changed player is written at the next tick, at most once per tick. Set
-  `prism_runner.FlushSeconds` to space out the writes of a player.
-- **`Model.Commit()` forces a write** at the next tick, even when writes are spaced out. It is `<transacts>`:
+- **About every change, at a bounded cost.** A changed player is written at most once per `FlushSeconds` (1 s by
+  default; 0 writes at every tick), so a crash loses at most one second of play.
+- **`Model.Commit()` forces a write** at the next tick, whatever `FlushSeconds`. It is `<transacts>`:
   call it inside a purchase, and it is cancelled if the purchase fails. `Store.FlushNow(Player)` writes
   immediately, from ordinary code.
 - **Nothing is written before the first real change.** Joining doesn't create a record. If a load ever goes
@@ -171,9 +198,9 @@ save_component := class<final_super>(component):
   - No flush ever serializes the record more than twice (the check, then the write), and an oversized write never
     reaches the server.
 
-Each write serializes the whole record synchronously, and writes in one transaction are coalesced. A value that
-changes every tick (passive income) means one serialization per tick per player. Use `FlushSeconds` if that is
-too much.
+Each write serializes the whole record synchronously, and writes in one transaction are coalesced. With the default
+`FlushSeconds`, a value that changes every tick (passive income) costs one serialization per second per player, of
+a record kept small by the columns.
 
 ## Published shapes
 
@@ -200,7 +227,7 @@ save.prism:12:15 error[P103]: persisted default of `DroneCount` changed from `1`
 Adopt Prism without touching existing saves:
 
 1. `prism-verse import PlayerData/player_save.verse PlayerData/records.verse --out PlayerData/save.prism` writes a
-   schema that reproduces your persistable classes.
+   schema that reproduces your persistable classes. Its types get `@@rows`, because your saves hold objects.
 2. `prism-verse lock PlayerData/save.prism` records that shape as published.
 3. Improve the schema: rename fields in the API with `@map`, add validators, migrations and caps.
 4. `prism-verse check PlayerData/save.prism --against PlayerData/player_save.verse PlayerData/records.verse` must

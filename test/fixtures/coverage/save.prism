@@ -23,6 +23,7 @@ model PlayerProfile {
   Spots     Spot[]       @where(IsGoodSpot) @maxItems(32) @trim(tail, 2)
   NextSpot  Int    = 1   @counter(Spots.Uid)
   History   Int[]        @trim(head) @item("Entry")
+  Trophies  Trophy[]     @maxItems(64) @trim(tail, 3)
   Scale     Float  = 1.0 @min(0.5) @max(4.0)
   Muted     Bool
   Saves     Int          @saveCount
@@ -41,6 +42,16 @@ type Spot {
   Label String
   Level Int    @min(0) @max(9)
   Kind  Rank?
+
+  @@rows
+}
+
+type Trophy {
+  Name  String = "cup"
+  Tier  Rank
+  Count Int    @min(0)
+  Shiny Bool
+  Ratio Float  = 0.5
 }
 
 enum Rank { Bronze Silver Gold }

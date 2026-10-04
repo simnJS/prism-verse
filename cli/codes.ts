@@ -37,6 +37,8 @@ export const CODES: Record<string, CodeInfo> = {
   P033: { title: "A name of the schema is also a Verse module of the project.", fix: "Verse reserves module (folder) names in the whole package: rename the field." },
   P040: { title: "The record can exceed the 256 KB player map limit.", fix: "Lower `@maxItems`, or split the data across two models." },
   P041: { title: "A list has no `@maxItems`.", fix: "Cap it with `@maxItems`, or mark it `@trim(head)` when old items can be dropped." },
+  P042: { title: "A list of a model is saved as objects (about 200 bytes of metadata per item).", fix: "Keep the fields of the type flat (no list, option or type) to save it in columns, or add `@@rows` to keep objects." },
+  P043: { title: "`@@rows` keeps objects for a type that could be saved in columns.", fix: "Remove `@@rows` unless saves in this format are already published." },
   P101: { title: "A persisted field was removed, renamed with `@map`, or made `@transient`.", fix: "Put it back with `@deprecated`, or restore its `@map` name." },
   P102: { title: "A persisted field changed type.", fix: "Keep the old field (`@deprecated`), add a new one, and convert it in a `@@migrate` step." },
   P103: { title: "A persisted default changed.", fix: "Keep the old default; give new players another value with `@initial`." },

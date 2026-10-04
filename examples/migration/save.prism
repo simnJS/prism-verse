@@ -1,0 +1,17 @@
+// Money was an Int saved as `Coins`; it becomes a Float saved as `Money`. Old saves go through MoneyToFloat once.
+
+datasource {
+  kind = "memory"
+}
+
+generator {
+  prefix = "wallet_save"
+}
+
+model Wallet {
+  Version     Int   = 1 @version
+  LegacyCoins Int       @map("Coins") @deprecated
+  Coins       Float     @map("Money") @min(0.0)
+
+  @@migrate(2, MoneyToFloat)
+}

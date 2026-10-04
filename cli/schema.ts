@@ -43,6 +43,7 @@ export interface Field {
   firstSeen: boolean;
   saveCount: boolean;
   deprecated: boolean;
+  owner: boolean; // declared in a model
   transient: boolean;
   node: FieldNode;
 }
@@ -53,6 +54,7 @@ export interface TypeDecl {
   recordClass: string;
   fields: Field[];
   node: BlockNode;
+  rows: boolean;
 }
 
 export interface Migration {
@@ -130,6 +132,18 @@ export function isIdList(f: Field): TypeDecl | undefined {
   return f.type.base.decl.fields.some((x) => x.id) ? f.type.base.decl : undefined;
 }
 
+// Every field is an Int, Float, Bool, String or enum: a list of it can be saved as one array per field.
+export function columnEligible(t: TypeDecl): boolean {
+  return t.fields.length > 0 && t.fields.every((f) => f.type.container === "none" && f.type.base.kind !== "record");
+}
+
+// Only a list held by a model: a nested type is both the saved object and the in-memory value, so it can't hold columns.
+export function columnType(f: Field): TypeDecl | undefined {
+  if (!f.owner || f.type.container !== "list" || f.type.base.kind !== "record") return undefined;
+  const t = f.type.base.decl;
+  return !t.rows && columnEligible(t) ? t : undefined;
+}
+
 export function idField(d: TypeDecl): Field | undefined {
   return d.fields.find((f) => f.id);
 }
@@ -142,7 +156,7 @@ const FIELD_ATTRIBUTES = [
   "initial", "map", "min", "max", "maxItems", "trim", "where", "valid", "id", "counter", "item", "version",
   "lastSeen", "firstSeen", "saveCount", "deprecated", "transient",
 ];
-const BLOCK_ATTRIBUTES = ["map", "store", "onLoad", "migrate"];
+const BLOCK_ATTRIBUTES = ["map", "store", "onLoad", "migrate", "rows"];
 
 class Analyzer {
   private readonly file: SourceFile;
@@ -172,7 +186,10 @@ class Analyzer {
       });
     }
     for (const m of persistent) this.checkMembers(m, settings);
-    if (!this.reporter.hasErrors) for (const m of persistent) this.checkSize(m);
+    if (!this.reporter.hasErrors) {
+      this.checkColumns();
+      for (const m of persistent) this.checkSize(m);
+    }
     return { file: this.file, settings, models: persistent, types: [...this.types.values()], enums: [...this.enums.values()] };
   }
 
@@ -245,7 +262,7 @@ class Analyzer {
       if (!claim(b.name.text, b.name.span)) continue;
       const mapped = this.blockString(b, "map");
       if (b.keyword === "type") {
-        this.types.set(b.name.text, { kind: "type", name: b.name.text, recordClass: mapped ?? snake(b.name.text), fields: [], node: b });
+        this.types.set(b.name.text, { kind: "type", name: b.name.text, recordClass: mapped ?? snake(b.name.text), fields: [], node: b, rows: b.attributes.some((a) => a.name.text === "rows") });
       } else {
         this.models.set(b.name.text, {
           kind: "model",
@@ -317,6 +334,7 @@ class Analyzer {
       firstSeen: false,
       saveCount: false,
       deprecated: false,
+      owner: d.kind === "model",
       transient: false,
       node,
     };
@@ -562,6 +580,11 @@ class Analyzer {
         continue;
       }
       seen.add(name);
+      if (name === "rows") {
+        if (d.kind !== "type") this.error("P014", "`@@rows` is only allowed in a type", a.span);
+        else if (a.args.length > 0) this.error("P015", "`@@rows` takes no argument", a.span);
+        continue;
+      }
       if (name !== "map" && d.kind !== "model") {
         this.error("P014", `\`@@${name}\` is only allowed in a model`, a.span);
         continue;
@@ -741,6 +764,35 @@ class Analyzer {
     for (const f of m.fields.filter(inModel)) claim(f.name, f);
     for (const f of m.fields.filter(inModel)) {
       for (const name of memberNames(f, settings.methodPrefix)) claim(name, f);
+    }
+  }
+
+  // Column names must not clash with other saved names; lists that can't be columns are reported once.
+  private checkColumns(): void {
+    for (const d of [...this.models.values(), ...this.types.values()]) {
+      const names = new Map<string, string>();
+      for (const f of persistedFields(d)) {
+        const columns = columnType(f);
+        const saved = columns ? columns.fields.map((c) => `${f.persisted}_${c.persisted}`) : [f.persisted];
+        for (const n of saved) {
+          const other = names.get(n);
+          if (other) this.error("P019", `\`${f.name}\` saves a column named \`${n}\`, already used by \`${other}\``, f.node.name.span, { help: "rename one of them with `@map`" });
+          names.set(n, f.name);
+        }
+        if (!f.owner || f.type.container !== "list" || f.type.base.kind !== "record" || columns || f.type.base.decl.rows) continue;
+        const t = f.type.base.decl;
+        const blocker = t.fields.find((x) => x.type.container !== "none" || x.type.base.kind === "record");
+        this.reporter.warning("P042", `\`${f.name}\` is saved as objects, about 200 bytes of metadata per item: \`${t.name}.${blocker?.name ?? "?"}\` is a list, an option or a type`, { file: this.file, span: f.node.name.span }, {
+          help: `keep the fields of \`${t.name}\` flat to save it in columns, or add \`@@rows\` to \`type ${t.name}\` to keep this format`,
+        });
+      }
+    }
+    for (const t of this.types.values()) {
+      if (!t.rows || !columnEligible(t)) continue;
+      const span = t.node.attributes.find((a) => a.name.text === "rows")!.span;
+      this.reporter.warning("P043", `\`@@rows\` saves \`${t.name}\` as objects, several times larger than columns`, { file: this.file, span }, {
+        help: "remove `@@rows` unless saves in this format are already published",
+      });
     }
   }
 

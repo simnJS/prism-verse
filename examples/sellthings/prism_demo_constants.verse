@@ -1,14 +1,19 @@
 # Stand-ins for SellThings' Balance values, in their own module: a persisted default can't name a constant of its own module.
 prism_demo_constants<public> := module:
-    SaveVersion<public>:int = 2
-    StartDrones<public>:int = 1
     StartCoins<public>:float = 25.0
-    MaxDrones<public>:int = 8
-    DroneMaxSpeedLevel<public>:int = 10
-    MaxUpgradeLevel<public>:int = 25
-    HotbarOreSlots<public>:int = 6
-    MaxOreLevel<public>:int = 20
+    StartDrones<public>:int = 1
+    MaxDrones<public>:int = 20
+    DroneMaxSpeedLevel<public>:int = 20
+    HotbarOreSlots<public>:int = 15
+    MaxOreLevel<public>:int = 50
     MaxPetFusion<public>:int = 2
-    MaxStoredPets<public>:int = 50
+    MaxStoredPets<public>:int = 60
     MaxBoostPedestals<public>:int = 3
     TutorialSteps<public>:int = 7
+    MaxPlacedMines<public>:int = 1000
+    MaxPlotCells<public>:int = 64
+    MaxPedestalLevel<public>:int = 3
+    MaxRegenLevel<public>:int = 30
+    MaxYieldLevel<public>:int = 50
+    MaxAutoRollLevel<public>:int = 1
+    MaxFurnaceLevel<public>:int = 11

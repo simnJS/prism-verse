@@ -15,6 +15,7 @@ model Save {
   Level   Int   = 1
   Items   Item[]
   Mode    Mode  = Mode.Easy
+  Home    Spot
   Recent  Int[]       @transient
 
   @@store("SaveData")
@@ -23,6 +24,10 @@ model Save {
 type Item {
   Id   Int @id
   Kind Int
+}
+
+type Spot {
+  X Int
 }
 
 enum Mode { Easy Hard }
@@ -68,8 +73,20 @@ test("P101: turning a persisted field into a transient one", () => {
   assert.deepEqual(breaking((t) => t.replace("  Level   Int   = 1\n", "  Level   Int   = 1 @transient\n")), ["P101"]);
 });
 
-test("P101: removing a field of a type", () => {
+test("P101: removing a field of a type saved in columns removes its column", () => {
   assert.deepEqual(breaking((t) => t.replace("  Kind Int\n", "")), ["P101"]);
+});
+
+test("adding a field to a type saved in columns adds a column", () => {
+  assert.deepEqual(breaking((t) => t.replace("  Kind Int\n", "  Kind Int\n  Rare Bool\n")), []);
+});
+
+test("renaming a type saved in columns is free: its class is not in the save", () => {
+  assert.deepEqual(breaking((t) => t.replace("type Item {", "type Thing {").replace("Items   Item[]", "Items   Thing[]")), []);
+});
+
+test("P101: switching a published column list to @@rows", () => {
+  assert.deepEqual(breaking((t) => t.replace("  Kind Int\n}", "  Kind Int\n\n  @@rows\n}")), ["P101", "P101"]);
 });
 
 test("P102: changing the type of a persisted field", () => {
@@ -84,8 +101,8 @@ test("P103 is not raised by @initial", () => {
   assert.deepEqual(breaking((t) => t.replace("  Level   Int   = 1\n", "  Level   Int   = 1 @initial(2)\n")), []);
 });
 
-test("P104: renaming a record class", () => {
-  assert.deepEqual(breaking((t) => t.replace("  Kind Int\n", '  Kind Int\n\n  @@map("item_v2")\n')), ["P104"]);
+test("P104: renaming the class of a type saved as an object", () => {
+  assert.deepEqual(breaking((t) => t.replace("  X Int\n", '  X Int\n\n  @@map("spot_v2")\n')), ["P104"]);
 });
 
 test("P104: renaming the record of a model", () => {

@@ -37,6 +37,8 @@ const CASES: [string, string, string, string[]?][] = [
   ["P033", "field named like a project module", "model A {\n  Pets Int[] @maxItems(10)\n}\n", ["Pets", "Shop"]],
   ["P040", "record above 256 KB", "model A {\n  Drops Int[] @maxItems(20000)\n}\n"],
   ["P041", "list without @maxItems", "model A {\n  Mines Int[]\n}\n"],
+  ["P042", "list saved as objects", "model A {\n  Spots Spot[] @maxItems(8)\n}\n\ntype Spot {\n  Tags Int[]\n}\n"],
+  ["P043", "@@rows on a flat type", "model A {\n  Mines Mine[] @maxItems(8)\n}\n\ntype Mine {\n  Id Int\n\n  @@rows\n}\n"],
 ];
 
 test("every documented schema error has a case", () => {

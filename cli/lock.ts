@@ -1,7 +1,7 @@
 import type { Diagnostic, Reporter } from "./diagnostics.ts";
-import { persistedDefaultOf, verseTypeOf } from "./generate.ts";
 import { sha256 } from "./hash.ts";
-import { persistedFields, type Field, type ModelDecl, type Schema, type TypeDecl } from "./schema.ts";
+import type { Schema } from "./schema.ts";
+import { persistedRecords, type ShapeField, type ShapeRecord } from "./shape.ts";
 import type { SourceFile, Span } from "./source.ts";
 
 export const LOCK_FORMAT = 1;
@@ -38,11 +38,10 @@ export interface Snapshot {
 
 export function buildSnapshot(schema: Schema): Snapshot {
   const records: Record<string, LockedField[]> = {};
-  const decls: (ModelDecl | TypeDecl)[] = [...schema.models, ...schema.types];
-  for (const d of [...decls].sort((a, b) => a.recordClass.localeCompare(b.recordClass))) {
-    records[d.recordClass] = persistedFields(d).map((f) => {
-      const locked: LockedField = { name: f.persisted, type: verseTypeOf(schema, f.type), default: persistedDefaultOf(schema, f) };
-      if (f.name !== f.persisted) locked.api = f.name;
+  for (const r of persistedRecords(schema).sort((a, b) => a.recordClass.localeCompare(b.recordClass))) {
+    records[r.recordClass] = r.fields.map((f) => {
+      const locked: LockedField = { name: f.name, type: f.type, default: f.default };
+      if (!f.list && f.field.name !== f.name) locked.api = f.field.name;
       return locked;
     });
   }
@@ -139,8 +138,8 @@ export function compareSnapshot(schema: Schema, lock: Snapshot, reporter: Sink):
       help: "switching between memory and player is a new store, not an edit: restore the kind",
     });
   }
-  const decls = new Map<string, ModelDecl | TypeDecl>();
-  for (const d of [...schema.models, ...schema.types]) decls.set(d.recordClass, d);
+  const decls = new Map<string, ShapeRecord>();
+  for (const r of persistedRecords(schema)) decls.set(r.recordClass, r);
   const reportedRecords = new Set<string>();
 
   for (const locked of lock.stores) {
@@ -194,26 +193,25 @@ export function compareSnapshot(schema: Schema, lock: Snapshot, reporter: Sink):
       }
       continue;
     }
-    const current = new Map<string, Field>();
-    for (const f of persistedFields(d)) current.set(f.persisted, f);
+    const current = new Map<string, ShapeField>();
+    for (const f of d.fields) current.set(f.name, f);
     const lockedNames = new Set(fields.map((f) => f.name));
     for (const lf of fields) {
-      const f = current.get(lf.name);
-      if (!f) {
+      const sf = current.get(lf.name);
+      if (!sf) {
         reportRemoved(schema, d, lf, lockedNames, reporter);
         continue;
       }
-      const type = verseTypeOf(schema, f.type);
-      if (type !== lf.type && !mentionsMissing(lf.type)) {
-        reporter.error("P102", `persisted field \`${lf.name}\` changed type from \`${lf.type}\` to \`${type}\``, at(f.node.type.span), {
+      const f = sf.field;
+      if (sf.type !== lf.type && !mentionsMissing(lf.type)) {
+        reporter.error("P102", `persisted field \`${lf.name}\` changed type from \`${lf.type}\` to \`${sf.type}\``, at(f.node.type.span), {
           help: `keep \`${lf.name}\` as it was (mark it \`@deprecated\`), add a new field and convert it in a \`@@migrate\` step`,
         });
       }
-      const def = persistedDefaultOf(schema, f);
-      if (type === lf.type && def !== lf.default) {
-        reporter.error("P103", `persisted default of \`${f.name}\` changed from \`${lf.default}\` to \`${def}\``, at((f.def ?? f.node.name).span), {
-          label: `saves written before this field existed would load ${def}`,
-          help: `keep \`= ${verseToSchema(lf.default)}\`; use \`@initial(${f.def ? schema.file.text.slice(f.def.span.start, f.def.span.end) : verseToSchema(def)})\` to give new players another value`,
+      if (sf.type === lf.type && sf.default !== lf.default) {
+        reporter.error("P103", `persisted default of \`${f.name}\` changed from \`${lf.default}\` to \`${sf.default}\``, at((f.def ?? f.node.name).span), {
+          label: `saves written before this field existed would load ${sf.default}`,
+          help: `keep \`= ${verseToSchema(lf.default)}\`; use \`@initial(${f.def ? schema.file.text.slice(f.def.span.start, f.def.span.end) : verseToSchema(sf.default)})\` to give new players another value`,
         });
       }
     }
@@ -233,12 +231,16 @@ export function compareSnapshot(schema: Schema, lock: Snapshot, reporter: Sink):
   }
 }
 
-function reportRemoved(schema: Schema, d: ModelDecl | TypeDecl, lf: LockedField, lockedNames: Set<string>, reporter: Sink): void {
+function reportRemoved(schema: Schema, r: ShapeRecord, lf: LockedField, lockedNames: Set<string>, reporter: Sink): void {
+  const d = r.decl;
   const apiName = lf.api ?? lf.name;
   const remapped = d.fields.find((f) => f.name === apiName && !f.transient && f.persisted !== lf.name);
   const sameName = d.fields.find((f) => f.name === apiName);
-  const newcomer = d.fields.find((f) => !f.transient && !lockedNames.has(f.persisted) && verseTypeOf(schema, f.type) === lf.type);
-  let help = `put it back as \`${lf.name} ${schemaType(lf.type)} = ${verseToSchema(lf.default)} @deprecated\``;
+  const newcomer = r.fields.find((f) => !f.list && !lockedNames.has(f.name) && f.type === lf.type)?.field;
+  const column = /^(\w+)_(\w+)$/.exec(lf.name);
+  let help = column && d.fields.some((f) => f.persisted === column[1])
+    ? `\`${lf.name}\` is a column of \`${column[1]}\`: put the field \`${column[2]}\` back in its type, marked \`@deprecated\` if unused`
+    : `put it back as \`${lf.name} ${schemaType(lf.type)} = ${verseToSchema(lf.default)} @deprecated\``;
   let span = d.node.name.span;
   if (remapped) {
     help = `\`${remapped.name}\` was saved as \`${lf.name}\`: restore \`@map("${lf.name}")\``;

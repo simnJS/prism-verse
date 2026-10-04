@@ -1,10 +1,12 @@
 import type { Literal } from "./ast.ts";
 import { fresh, pascal, snake } from "./names.ts";
 import {
-  idField, inModel, isIdList, isMetadata, isNumeric, isPersisted, MODEL_MEMBERS, memberNames, persistedFields, trimmedLists,
+  columnType, idField, inModel, isIdList, isMetadata, isNumeric, isPersisted, MODEL_MEMBERS, memberNames, persistedFields, trimmedLists,
   type Field, type FieldType, type ModelDecl, type Schema, type TypeDecl,
 } from "./schema.ts";
+import { columnName, shapeFields } from "./shape.ts";
 import { COST, recordFixed, sizeTerms } from "./size.ts";
+import * as text from "./verse_text.ts";
 import { VERSION } from "./version.ts";
 
 export interface GeneratedFile {
@@ -86,21 +88,21 @@ class Generator {
     for (const d of this.decls()) {
       out.blank();
       out.line(0, `${d.recordClass}<public> := class<final><persistable>:`);
-      for (const f of persistedFields(d)) out.line(1, `${f.persisted}<public>:${this.verseType(f.type)} = ${this.persistedDefault(f)}`);
+      for (const f of this.savedFields(d)) out.line(1, `${f.name}<public>:${f.type} = ${f.default}`);
     }
     for (const m of this.schema.models) {
       out.blank();
       out.line(0, `var ${m.storeVar}<internal>:${this.storeType(m)} = map{}`);
     }
     for (const d of this.decls()) {
-      const fields = persistedFields(d);
+      const fields = this.savedFields(d);
       out.blank();
       out.line(0, `${this.maker(d)}<constructor><public>(Source:${d.recordClass})<transacts> := ${d.recordClass}:`);
-      for (const f of fields) out.line(1, `${f.persisted} := Source.${f.persisted}`);
+      for (const f of fields) out.line(1, `${f.name} := Source.${f.name}`);
       for (const f of fields) {
         out.blank();
-        out.line(0, `(Record:${d.recordClass}).With${f.persisted}<public>(Value:${this.verseType(f.type)})<transacts>:${d.recordClass} =`);
-        this.copy(out, 1, d, "Record", [[f.persisted, "Value"]]);
+        out.line(0, `(Record:${d.recordClass}).With${f.name}<public>(Value:${f.type})<transacts>:${d.recordClass} =`);
+        this.copy(out, 1, d, "Record", [[f.name, "Value"]]);
       }
     }
     return out.toString();
@@ -149,6 +151,7 @@ class Generator {
       out.blank();
       this.storeClass(out, m);
       this.migrated(out, m);
+      for (const f of m.fields) this.rowsOf(out, m, f);
     }
     for (const t of this.schema.types) this.validated(out, t);
     for (const d of this.decls()) if (d.kind === "model" || recordFixed(d) === undefined) this.sizeOf(out, d);
@@ -175,7 +178,13 @@ class Generator {
       return;
     }
     out.line(depth, `${d.recordClass}:`);
-    for (const f of persistedFields(d)) out.line(depth + 1, `${f.persisted} := ${replaced.get(f.persisted) ?? `${source}.${f.persisted}`}`);
+    for (const f of this.savedFields(d)) out.line(depth + 1, `${f.name} := ${replaced.get(f.name) ?? `${source}.${f.name}`}`);
+  }
+
+  // The fields of a record class: a model's saved shape (lists of flat types become columns), a type's own fields.
+  private savedFields(d: ModelDecl | TypeDecl): { name: string; type: string; default: string }[] {
+    if (d.kind === "model") return shapeFields(this.schema, d);
+    return persistedFields(d).map((f) => ({ name: f.persisted, type: this.verseType(f.type), default: this.persistedDefault(f) }));
   }
 
   private storeType(m: ModelDecl): string {
@@ -266,10 +275,15 @@ class Generator {
       out.line(2, touch);
       return;
     }
+    // A capped history (@trim(head)) drops its oldest item instead of refusing a new one.
+    const rolling = max !== undefined && f.trim?.end === "head";
     out.blank();
-    out.line(1, `${p}Push${item}<public>(${value}:${itemType})${effects}:void =`);
-    if (max) out.line(2, `${n}.Length < ${max}`);
-    out.line(2, `set ${n} += array{${value}}`);
+    out.line(1, `${p}Push${item}<public>(${value}:${itemType})${rolling ? "<transacts>" : effects}:void =`);
+    if (rolling) out.line(2, `set ${n} = (${n} + array{${value}}).PrismKeepLast(${max})`);
+    else {
+      if (max) out.line(2, `${n}.Length < ${max}`);
+      out.line(2, `set ${n} += array{${value}}`);
+    }
     out.line(2, touch);
     out.blank();
     out.line(1, `${p}Set${item}At<public>(${index}:int, ${value}:${itemType})<transacts><decides>:void =`);
@@ -327,7 +341,7 @@ class Generator {
     const loaded = m.fields.filter((f) => inModel(f) && isPersisted(f));
     for (const f of loaded.filter((x) => !x.counter)) {
       if (isMetadata(f)) out.line(2, `set ${f.name} = ${rec}.${f.persisted}`);
-      else out.line(2, `set ${f.name} = ${this.loadExpr(f, `${rec}.${f.persisted}`, members)}`);
+      else out.line(2, `set ${f.name} = ${this.loadExpr(f, columnType(f) ? `${rec}.PrismRows${f.persisted}()` : `${rec}.${f.persisted}`, members)}`);
       if (f.lastSeen) out.line(2, `set OfflineSeconds = PrismOfflineSeconds(${rec}.${f.persisted})`);
     }
     for (const f of loaded.filter((x) => x.counter)) {
@@ -344,7 +358,10 @@ class Generator {
       else if (f.lastSeen) out.line(3, `${f.persisted} := ${now}`);
       else if (f.firstSeen) out.line(3, `${f.persisted} := if (${f.name} > 0.0) then ${f.name} else ${now}`);
       else if (f.saveCount) out.line(3, `${f.persisted} := ${f.name} + 1`);
-      else out.line(3, `${f.persisted} := ${f.name}`);
+      else if (columnType(f)) {
+        const item = fresh("Item", members);
+        for (const c of columnType(f)!.fields) out.line(3, `${columnName(f, c)} := for (${item} : ${f.name}) { ${item}.${c.persisted} }`);
+      } else out.line(3, `${f.persisted} := ${f.name}`);
     }
     out.blank();
     out.line(1, `Clear<internal>()<transacts>:void =`);
@@ -505,7 +522,7 @@ class Generator {
       out.line(3, `return ${step}`);
       if (i < lists.length - 1) {
         const next = `Without${f.persisted}`;
-        out.line(2, `${next} := ${current}.With${f.persisted}(array{})`);
+        out.line(2, `${next} := ${this.emptied(current, f)}`);
         current = next;
       }
     });
@@ -515,18 +532,48 @@ class Generator {
       const name = f.persisted;
       const fromEnd = f.trim!.end === "head" ? "true" : "false";
       const term = sizeTerms(m).terms.find((t) => t.field === f);
+      const keep = keepFn(f);
       out.blank();
       out.line(1, `Trim${name}<private>(Rec:${record}):?${record} =`);
-      out.line(2, `Budget := PrismPlayerMapBudget - Rec.With${name}(array{}).PrismSize()`);
+      out.line(2, `Budget := PrismPlayerMapBudget - ${this.emptied("Rec", f)}.PrismSize()`);
       out.line(2, `if (Budget < 0):`);
       out.line(3, `return false`);
+      if (term?.kind === "columns") {
+        const count = `Rec.${term.first}.Length`;
+        const strings = term.strings.map((c) => ` + (Rec.${c}[Index] or "").Length * ${COST.stringChar} + ${COST.stringBase + COST.item}`).join("");
+        if (term.strings.length === 0) out.line(2, `KeepCount := if (Count := Quotient[Budget, ${term.rowBytes}]) then Count else 0`);
+        else out.line(2, `KeepCount := PrismFitCount(for (Index := 0..${count} - 1) { ${term.rowBytes}${strings} }, Budget, ${fromEnd})`);
+        const columns = columnType(f)!.fields.map((c) => columnName(f, c));
+        out.line(2, `PrismLog(StoreName(), "${name} trimmed from {${count}} to {Min(KeepCount, ${count})} items to fit the player map")`);
+        out.line(2, `option{Rec${columns.map((c) => `.With${c}(Rec.${c}.${keep}(KeepCount))`).join("")}}`);
+        continue;
+      }
       if (term?.kind === "fixedList") out.line(2, `KeepCount := if (Count := Quotient[Budget, ${term.itemBytes}]) then Count else 0`);
       else if (term?.kind === "stringList") out.line(2, `KeepCount := PrismFitCount(for (Item : Rec.${name}) { Item.Length * ${COST.stringChar} + ${COST.stringBase + COST.item} }, Budget, ${fromEnd})`);
       else out.line(2, `KeepCount := PrismFitCount(for (Item : Rec.${name}) { Item.PrismSize() + ${COST.item} }, Budget, ${fromEnd})`);
-      out.line(2, `Kept := Rec.${name}.${keepFn(f)}(KeepCount)`);
+      out.line(2, `Kept := Rec.${name}.${keep}(KeepCount)`);
       out.line(2, `PrismLog(StoreName(), "${name} trimmed from {Rec.${name}.Length} to {Kept.Length} items to fit the player map")`);
       out.line(2, `option{Rec.With${name}(Kept)}`);
     }
+  }
+
+  // The record without the items of one list (all its columns emptied).
+  private emptied(rec: string, f: Field): string {
+    const columns = columnType(f);
+    if (!columns) return `${rec}.With${f.persisted}(array{})`;
+    return rec + columns.fields.map((c) => `.With${columnName(f, c)}(array{})`).join("");
+  }
+
+  // Rebuilds the items of a columnar list; a missing value (a column added later) takes the field's default.
+  private rowsOf(out: Lines, m: ModelDecl, f: Field): void {
+    const t = columnType(f);
+    if (!t || !isPersisted(f) || f.deprecated) return;
+    const lengths = t.fields.map((c) => `Rec.${columnName(f, c)}.Length`).join(", ");
+    out.blank();
+    out.line(0, `(Rec:${m.recordClass}).PrismRows${f.persisted}<internal>()<transacts>:[]${t.recordClass} =`);
+    out.line(1, `for (Index := 0..PrismMaxLength(array{${lengths}}) - 1):`);
+    out.line(2, `${t.recordClass}:`);
+    for (const c of t.fields) out.line(3, `${c.persisted} := Rec.${columnName(f, c)}[Index] or ${this.persistedDefault(c)}`);
   }
 
   private migrated(out: Lines, m: ModelDecl): void {
@@ -595,6 +642,10 @@ class Generator {
         case "record":
           parts.push(`${src}.PrismSize()`);
           break;
+        case "columns":
+          parts.push(`Rec.${t.first}.Length * ${t.rowBytes}`);
+          for (const c of t.strings) parts.push(`PrismSum(for (Item : Rec.${c}) { Item.Length * ${COST.stringChar} + ${COST.stringBase + COST.item} })`);
+          break;
       }
     }
     out.blank();
@@ -605,57 +656,19 @@ class Generator {
   // ---- values and types ----
 
   verseType(t: FieldType): string {
-    const b = t.base;
-    const base =
-      b.kind === "scalar" ? { Int: "int", Float: "float", Bool: "logic", String: "string" }[b.name] : b.kind === "enum" ? b.decl.verseName : b.decl.recordClass;
-    return t.container === "list" ? `[]${base}` : t.container === "option" ? `?${base}` : base;
+    return text.verseType(t);
   }
 
   private persistedDefault(f: Field): string {
-    return f.def ? this.value(f.def, f.type) : this.implicitDefault(f.type);
+    return text.persistedDefault(this.schema, f);
   }
 
   private initialValue(f: Field): string {
-    return f.initial ? this.value(f.initial, f.type) : this.persistedDefault(f);
-  }
-
-  implicitDefault(t: FieldType): string {
-    if (t.container === "list") return "array{}";
-    if (t.container === "option") return "false";
-    const b = t.base;
-    if (b.kind === "record") return `${b.decl.recordClass}{}`;
-    if (b.kind === "enum") return `${b.decl.verseName}.${b.decl.values[0]}`;
-    return { Int: "0", Float: "0.0", Bool: "false", String: '""' }[b.name];
+    return text.initialValue(this.schema, f);
   }
 
   value(lit: Literal, t: FieldType): string {
-    if (t.container === "option" && lit.kind !== "none" && lit.kind !== "name") return `option{${this.value(lit, { base: t.base, container: "none" })}}`;
-    switch (lit.kind) {
-      case "name": {
-        const e = this.schema.enums.find((x) => x.name === lit.parts[0]);
-        if (e && lit.parts.length === 2) return `${e.verseName}.${lit.parts[1]}`;
-        if (t.base.kind === "enum" && lit.parts.length === 1 && t.base.decl.values.includes(lit.parts[0]!)) return `${t.base.decl.verseName}.${lit.parts[0]}`;
-        return lit.parts.join(".");
-      }
-      case "none":
-        return "false";
-      case "list": {
-        const item: FieldType = { base: t.base, container: "none" };
-        return `array{${lit.items.map((i) => this.value(i, item)).join(", ")}}`;
-      }
-      case "bool":
-        return lit.value ? "true" : "false";
-      case "string":
-        return `"${lit.value.replace(/[\\"{}]/g, (c) => `\\${c}`).replace(/\n/g, "\\n").replace(/\t/g, "\\t")}"`;
-      case "int":
-      case "float": {
-        const isFloat = t.base.kind === "scalar" && t.base.name === "Float";
-        let text = lit.text;
-        if (isFloat && !/[.eE]/.test(text)) text += ".0";
-        else if (isFloat && /[eE]/.test(text) && !text.includes(".")) text = text.replace(/[eE]/, ".0e");
-        return text;
-      }
-    }
+    return text.value(this.schema, lit, t);
   }
 
   private header(runtime: boolean): Lines {
@@ -676,13 +689,10 @@ function literalText(lit: Literal): string {
   return lit.kind === "name" ? lit.parts.join(".") : lit.kind === "int" ? lit.text : "";
 }
 
-const NO_OPTIONS: GenerateOptions = { lib: "", schemaName: "", schemaHash: "" };
-
-export function verseTypeOf(schema: Schema, t: FieldType): string {
-  return new Generator(schema, NO_OPTIONS).verseType(t);
+export function verseTypeOf(_schema: Schema, t: FieldType): string {
+  return text.verseType(t);
 }
 
 export function persistedDefaultOf(schema: Schema, f: Field): string {
-  const g = new Generator(schema, NO_OPTIONS);
-  return f.def ? g.value(f.def, f.type) : g.implicitDefault(f.type);
+  return text.persistedDefault(schema, f);
 }

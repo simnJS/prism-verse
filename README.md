@@ -3,8 +3,8 @@
 **Typed player data for UEFN Verse.** Write your player save once, in a small schema. Prism generates the Verse code
 that loads, validates, migrates and saves it, and refuses any edit that would break saves you have already published.
 
-> **Status: alpha.** Generated code verified with UEFN 42.30: compile, BuildAll, and a 29-check self-test in a live
-> session.
+> **Status: alpha.** Generated code verified with UEFN 42.30: compile, BuildAll and a self-test in a live session
+> (0.1: 29 checks; the 0.2 run is next).
 
 ```
 save.prism ──prism-verse generate──▶ player_save_records.verse   the persisted contract
@@ -23,7 +23,8 @@ The mistakes are silent:
 - **Let a list grow past 256 KB.** The write is a runtime error, or your size guard silently skips every save after.
 
 Prism generates the four places from one schema, checks every edit against what you published, and guards every
-write.
+write. It also saves lists compactly: Verse's format repeats about 200 bytes of metadata for every object in a list,
+so Prism saves a list of flat items as one array per field ("columns") and rebuilds the objects on load.
 
 ## Install
 
@@ -58,7 +59,7 @@ model PlayerSave {
   Level       Int   = 1   @min(1) @max(100)
   Cards       Card[]      @maxItems(50)
   NextCard    Int   = 1   @counter(Cards.Uid)
-  RecentDrops Int[]       @trim(head)
+  RecentDrops Int[]       @maxItems(100) @trim(head)
   LastSeen    Float = 0.0 @lastSeen
   Selected    Int   = -1  @transient
 }
@@ -104,22 +105,30 @@ prism-verse lock Content/Verse/Game/save.prism
 ## Migrations
 
 Published fields can't be removed or retyped. When one changes meaning, keep it as `@deprecated` and convert it in a
-plain Verse function. Here, money was an `Int` saved as `Coins` and became a `Float` saved as `Money`:
+plain Verse function. Here, money was an `Int` saved as `Coins` and became a `Float` saved as `Money`
+([examples/migration](examples/migration)):
 
 ```prisma
-model PlayerState {
-  Version     Int   = SaveVersion @version
-  LegacyCoins Int                 @map("Coins") @deprecated
-  Coins       Float               @map("Money") @initial(StartCoins) @min(0.0)
+model Wallet {
+  Version     Int   = 1 @version
+  LegacyCoins Int       @map("Coins") @deprecated
+  Coins       Float     @map("Money") @min(0.0)
 
   @@migrate(2, MoneyToFloat)
 }
 ```
 
+```verse
+MoneyToFloat(Rec:wallet_record)<transacts>:wallet_record =
+    Rec.WithMoney(1.0 * Max(Rec.Coins, 0))
+```
+
 ## How saving works
 
-- A changed player is written at the next tick. `Commit()` marks critical moments such as purchases, and
-  `FlushSeconds` can space out writes.
+- A changed player is written at most once per second (`FlushSeconds`, 0 for every tick), so a crash loses at most
+  one second. `Commit()` writes at the next tick: use it for purchases and rare drops.
+- Lists of flat items (only `Int`, `Float`, `Bool`, `String` and enum fields) are saved in columns. `@@rows` on a type
+  keeps one object per item, for a format you already published.
 - Nothing is written before the first real change, so a failed load can never overwrite real data with defaults.
 - Prism never relies on a save when a player leaves: UEFN doesn't guarantee it.
 - An oversized write never reaches the server. Lists marked `@trim` are cut; otherwise the last good save is kept.
@@ -138,7 +147,8 @@ Good to know: **rolling back an island wipes all player data**, and an island ha
   game, CLI, testing.
 - [Error codes](docs/errors.md), [patterns](docs/patterns.md) (purchases, hot/cold split) and
   [design research](docs/research.md).
-- [examples/](examples): the quickstart, and the save of a real tycoon game (26 fields, two migrations).
+- [examples/](examples): the quickstart, the save of a real tycoon game ([sellthings](examples/sellthings)), a
+  [migration](examples/migration), and the objects-versus-columns [measure](examples/measure) used by the self-test.
 - [Contributing](CONTRIBUTING.md).
 
 ## License

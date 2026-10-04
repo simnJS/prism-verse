@@ -50,7 +50,7 @@ save.prism:7:20 error[P012]: unknown type `PlacedMines`
 | P032 | The `@valid` fallback doesn't match the item type. |
 | P033 | A field, enum value or generated name has the name of a Verse module (a folder) of the project: Verse reserves module names in the whole package. |
 
-## Size warnings (P040–P041)
+## Size warnings (P040–P043)
 
 Warnings: generation still succeeds. Sizes are upper bounds of Verse's persistence JSON (see `cli/size.ts`), with
 strings counted at 64 characters.
@@ -59,6 +59,8 @@ strings counted at 64 characters.
 |---|---|
 | P040 | The record can grow past the 256 KB player map limit. |
 | P041 | A list has no `@maxItems` (and no `@trim`): its size is unbounded. |
+| P042 | A list of a model is saved as objects, about 200 bytes of metadata per item, because its type has a list, an option or a nested type. |
+| P043 | `@@rows` keeps objects for a type that could be saved in columns, and no published shape needs that format. |
 
 ## Published shapes: breaking changes (P101–P110)
 

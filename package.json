@@ -1,6 +1,6 @@
 {
   "name": "prism-verse",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Typed player data for UEFN Verse: one schema, generated persistence, migrations and a lock that refuses breaking changes.",
   "license": "MIT",
   "author": "simnJS",
@@ -32,7 +32,7 @@
     "build": "esbuild cli/bin.ts --bundle --platform=node --format=esm --target=node22 --outfile=dist/prism.js --banner:js=\"#!/usr/bin/env node\"",
     "typecheck": "tsc --noEmit",
     "test": "node --test \"test/**/*.test.ts\"",
-    "examples": "node cli/bin.ts generate examples/quickstart/save.prism --kind memory --lib Prism && node cli/bin.ts generate examples/sellthings/save.prism --lib Prism && node cli/bin.ts generate test/fixtures/coverage/save.prism --lib Prism",
+    "examples": "node cli/bin.ts generate examples/quickstart/save.prism --kind memory --lib Prism && node cli/bin.ts generate examples/sellthings/save.prism --lib Prism && node cli/bin.ts generate examples/migration/save.prism --lib Prism && node cli/bin.ts generate examples/measure/save.prism --lib Prism && node cli/bin.ts generate test/fixtures/coverage/save.prism --lib Prism",
     "prepare": "npm run build"
   },
   "keywords": [

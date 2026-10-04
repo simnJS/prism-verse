@@ -10,11 +10,11 @@ prism_store<public> := interface<computes>:
     FlushAll<public>(Force:logic):void
     Pump<public>(Debounce:float):void
 
-# Loads players as they join and writes every changed player at the next tick (FlushSeconds > 0 spaces the writes
-# of a player out). Saved players are rewritten every HeartbeatSeconds to keep LastSeen fresh, and when Run ends.
+# Loads players as they join and writes a changed player at most once per FlushSeconds (0 = at the next tick; Commit
+# always writes at the next tick). Saved players are rewritten every HeartbeatSeconds to keep LastSeen fresh, and when Run ends.
 prism_runner<public> := class:
     Stores<public>:[]prism_store = array{}
-    FlushSeconds<public>:float = 0.0
+    FlushSeconds<public>:float = 1.0
     HeartbeatSeconds<public>:float = 60.0
 
     Run<public>(Playspace:fort_playspace)<suspends>:void =

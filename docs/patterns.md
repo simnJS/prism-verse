@@ -26,9 +26,10 @@ A crash between two steps never grants twice and never loses a paid grant.
 
 ## Hot and cold data
 
-Each write serializes the **whole** record. When a save mixes values that change every tick (coins) with large
-collections that rarely change (an album of 500 items), split it into two models. Each model has its own store and
-its own record, so a coin change no longer rewrites the album:
+Each write serializes the **whole** record. Columns already make lists several times smaller, but when a save mixes
+values that change all the time (coins) with a large collection that rarely changes (an album of thousands of
+items), split it into two models. Each model has its own store and its own record, so a coin change no longer
+rewrites the album:
 
 ```prisma
 model PlayerHot {
@@ -37,7 +38,7 @@ model PlayerHot {
 }
 
 model PlayerCollection {
-  Items Item[] @maxItems(500)
+  Items Item[] @maxItems(5000)
 }
 ```
 

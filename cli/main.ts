@@ -167,6 +167,7 @@ function runSchemaCommand(command: "generate" | "lock" | "check", rest: string[]
   if (!reporter.hasErrors) checkReservedNames(schema, modules, reporter);
   const history = readHistory(io, schemaPath, reporter);
   if (!reporter.hasErrors) compareHistory(schema, history.snapshots, reporter);
+  justifyRows(schema, history.snapshots, reporter);
   if (command === "check" && !reporter.hasErrors) {
     const against = args.values.get("against") ?? [];
     if (against.length > 0) {
@@ -182,6 +183,16 @@ function runSchemaCommand(command: "generate" | "lock" | "check", rest: string[]
     return 0;
   }
   return writeGenerated(schema, file.text, schemaPath, args, reporter, io, modules, format);
+}
+
+// `@@rows` on a type whose objects are already in a published shape keeps that format on purpose: no P043.
+function justifyRows(schema: Schema, snapshots: Snapshot[], reporter: Reporter): void {
+  const published = new Set(snapshots.flatMap((s) => Object.keys(s.records)));
+  const spans = new Set(schema.types.filter((t) => t.rows && published.has(t.recordClass)).map((t) => t.node.attributes.find((a) => a.name.text === "rows")!.span.start));
+  for (let i = reporter.diagnostics.length - 1; i >= 0; i--) {
+    const d = reporter.diagnostics[i]!;
+    if (d.code === "P043" && d.span && spans.has(d.span.start)) reporter.diagnostics.splice(i, 1);
+  }
 }
 
 function writeSnapshot(schema: Schema, history: { next: string; latest: string | undefined }, reporter: Reporter, io: Io, format: Format): number {

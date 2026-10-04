@@ -44,12 +44,11 @@ test("the README quickstart schema is examples/quickstart/save.prism", () => {
   assert.ok(blocks(readme, "prisma").includes(schema), "the first schema of the quickstart must equal the example file");
 });
 
-test("the SellThings migration snippet uses the example schema", () => {
-  const readme = readFileSync(join(ROOT, "README.md"), "utf8");
-  const demo = readFileSync(join(ROOT, "examples/sellthings/save.prism"), "utf8");
-  for (const line of ["@@migrate(2, MoneyToFloat)", '@map("Money")', '@map("Coins") @deprecated']) {
-    assert.ok(readme.includes(line) && demo.includes(line), line);
-  }
+test("the migration schema of the docs is examples/migration/save.prism", () => {
+  const schema = readFileSync(join(ROOT, "examples/migration/save.prism"), "utf8");
+  const model = schema.slice(schema.indexOf("model Wallet"));
+  const docs = [join(ROOT, "README.md"), ...files(join(ROOT, "docs"), ".md")].map((d) => readFileSync(d, "utf8")).join("\n");
+  assert.ok(blocks(docs, "prisma").some((b) => b.includes(model.trim())), "a prisma block of the docs must show the Wallet model of examples/migration");
 });
 
 test("docs/errors.md lists exactly the codes of the catalog", () => {

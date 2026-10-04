@@ -1,5 +1,5 @@
-import type { Field, FieldType, ModelDecl, TypeDecl } from "./schema.ts";
-import { persistedFields } from "./schema.ts";
+import { columnType, persistedFields, type Field, type FieldType, type ModelDecl, type TypeDecl } from "./schema.ts";
+import { columnName } from "./shape.ts";
 
 // Upper bounds, in bytes, of Verse's persistence JSON (see docs/size.md). Generated `PrismSize` uses the same numbers.
 export const COST = {
@@ -52,6 +52,15 @@ export function worstCase(d: ModelDecl | TypeDecl, unbounded: Field[], seen = ne
   seen.add(d.name);
   let total = COST.record;
   for (const f of persistedFields(d)) {
+    const columns = columnType(f);
+    if (columns) {
+      const max = f.maxItems?.kind === "int" ? Number(f.maxItems.text) : undefined;
+      if (max === undefined && !f.maxItems) unbounded.push(f);
+      for (const c of columns.fields) {
+        total += columnName(f, c).length + COST.key + COST.list + (max ?? 0) * (itemWorst(c.type, unbounded, seen) + COST.item);
+      }
+      continue;
+    }
     total += f.persisted.length + COST.key;
     const item = itemWorst(f.type, unbounded, seen);
     if (f.type.container === "list") {
@@ -88,13 +97,28 @@ export type SizeTerm =
   | { kind: "string"; field: Field }
   | { kind: "optionString"; field: Field }
   | { kind: "optionRecord"; field: Field; decl: TypeDecl }
-  | { kind: "record"; field: Field; decl: TypeDecl };
+  | { kind: "record"; field: Field; decl: TypeDecl }
+  | { kind: "columns"; field: Field; decl: TypeDecl; first: string; rowBytes: number; strings: string[] };
 
 // The generated PrismSize is `constant + Σ terms`: one source for the Verse code and for the tests.
 export function sizeTerms(d: ModelDecl | TypeDecl): { constant: number; terms: SizeTerm[] } {
   let constant = COST.record;
   const terms: SizeTerm[] = [];
   for (const f of persistedFields(d)) {
+    const columns = columnType(f);
+    if (columns) {
+      let rowBytes = 0;
+      const strings: string[] = [];
+      for (const c of columns.fields) {
+        const name = columnName(f, c);
+        constant += name.length + COST.key + COST.list;
+        const fixed = fixedSize(c.type);
+        if (fixed === undefined) strings.push(name);
+        else rowBytes += fixed + COST.item;
+      }
+      terms.push({ kind: "columns", field: f, decl: columns, first: columnName(f, columns.fields[0]!), rowBytes, strings });
+      continue;
+    }
     constant += f.persisted.length + COST.key;
     const fixed = fixedSize(f.type);
     if (fixed !== undefined) {

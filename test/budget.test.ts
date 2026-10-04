@@ -5,7 +5,13 @@ import { test } from "node:test";
 import { ROOT } from "./helpers.ts";
 
 // FitsInPlayerMap serializes the whole record (tens of ms per thousand ints): a flush may call it once, never in a loop.
-const stores = ["examples/quickstart/player_save_store.verse", "examples/sellthings/demo_save_store.verse", "test/fixtures/coverage/coverage_store.verse"];
+const stores = [
+  "examples/quickstart/player_save_store.verse",
+  "examples/sellthings/demo_save_store.verse",
+  "examples/migration/wallet_save_store.verse",
+  "examples/measure/measure_store.verse",
+  "test/fixtures/coverage/coverage_store.verse",
+];
 
 function methods(text: string): Map<string, string> {
   const out = new Map<string, string>();

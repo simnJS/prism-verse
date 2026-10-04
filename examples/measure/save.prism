@@ -1,0 +1,37 @@
+// The same mines saved as objects (@@rows) and in columns, for the self-test's size measurement, plus a long trail to trim.
+
+datasource {
+  kind = "memory"
+}
+
+generator {
+  prefix = "measure"
+}
+
+model SizeProbe {
+  RowMines    RowMine[]    @maxItems(100000)
+  ColumnMines ColumnMine[] @maxItems(100000)
+  Trail       Int[]        @trim(head)
+}
+
+type RowMine {
+  Id       Int
+  OreId    Int
+  X        Float
+  Y        Float
+  Turns    Int
+  Level    Int
+  Mutation Int
+
+  @@rows
+}
+
+type ColumnMine {
+  Id       Int
+  OreId    Int
+  X        Float
+  Y        Float
+  Turns    Int
+  Level    Int
+  Mutation Int
+}

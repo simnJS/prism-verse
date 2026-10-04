@@ -21,7 +21,7 @@ export function init(target: string, options: { demo: boolean; sync: boolean }):
   const runtime = join(root, "runtime", "Prism");
   for (const name of verseFiles(runtime)) plan.push([join(runtime, name), join(target, name)]);
   if (options.demo) {
-    for (const example of ["quickstart", "sellthings"]) {
+    for (const example of readdirSync(join(root, "examples")).sort()) {
       const dir = join(root, "examples", example);
       for (const name of verseFiles(dir)) plan.push([join(dir, name), join(target, "PrismDemo", name)]);
     }

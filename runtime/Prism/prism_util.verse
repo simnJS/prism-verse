@@ -62,3 +62,10 @@ PrismFitCount<public>(Sizes:[]int, Budget:int, FromEnd:logic)<transacts>:int =
 
 PrismLog<public>(Store:string, Text:string):void =
     Print("[prism] {Store}: {Text}")
+
+# Rows of a list saved as columns: the longest column (a column added later is shorter in old saves).
+PrismMaxLength<public>(Lengths:[]int)<transacts>:int =
+    var Longest:int = 0
+    for (Length : Lengths):
+        set Longest = Max(Longest, Length)
+    Longest

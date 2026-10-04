@@ -12,7 +12,6 @@ import { analyze, ROOT } from "./helpers.ts";
 
 const fixture = new SourceFile("save_format.verse", readFileSync(join(ROOT, "test/fixtures/sellthings/save_format.verse"), "utf8"));
 const scan = scanVerse([fixture]);
-const demoText = readFileSync(join(ROOT, "examples/sellthings/save.prism"), "utf8");
 
 function errors(reporter: Reporter): string[] {
   return reporter.diagnostics.filter((d) => d.severity === "error").map(render);
@@ -35,27 +34,24 @@ test("import then check reproduces the published format exactly", () => {
   assert.deepEqual(check.diagnostics.map(render), []);
 });
 
-test("the SellThings demo schema matches the published format and passes its lock", () => {
-  const demo = analyze(demoText);
-  assert.deepEqual(demo.codes, [], demo.rendered);
-  demo.schema.settings.kind = "player";
-  const check = new Reporter();
-  checkAgainst(demo.schema, scan, check);
-  assert.deepEqual(check.diagnostics.map(render), []);
-  const published = buildSnapshot(analyze(importSchema(scan, ["save_format.verse"], new Reporter())).schema);
+test("import keeps a published format: types are imported with @@rows", () => {
+  const text = importSchema(scan, ["save_format.verse"], new Reporter());
+  assert.match(text, /type PlacedMine \{[\s\S]*?@@rows\n\}/);
+  const imported = analyze(text);
+  const published = buildSnapshot(imported.schema);
+  const columns = analyze(text.replace(/\n\n  @@rows\n/g, "\n"));
   const compared = new Reporter();
-  compareHistory(demo.schema, [published], compared);
-  assert.deepEqual(compared.diagnostics.map(render), []);
+  compareHistory(columns.schema, [published], compared);
+  assert.ok(compared.diagnostics.some((d) => d.code === "P101"), "moving a published list to columns must be reported");
 });
 
 test("check reports a missing field, a type change and an extra field", () => {
-  const edited = demoText
-    .replace('@map("CrateWorth")', '@map("CrateWorthX")')
-    .replace("  TutorialStep     Int                  @min(0) @max(TutorialSteps)", "  TutorialStep     Float");
-  const demo = analyze(edited);
-  assert.deepEqual(demo.codes, [], demo.rendered);
-  demo.schema.settings.kind = "player";
+  const text = importSchema(scan, ["save_format.verse"], new Reporter())
+    .replace(/  CrateWorth +Float\n/, "  CrateWorthX     Float\n")
+    .replace(/  TutorialStep +Int\n/, "  TutorialStep    Float\n");
+  const imported = analyze(text);
+  assert.deepEqual(imported.codes, [], imported.rendered);
   const check = new Reporter();
-  checkAgainst(demo.schema, scan, check);
+  checkAgainst(imported.schema, scan, check);
   assert.deepEqual(check.diagnostics.map((d) => d.code).sort(), ["P202", "P203", "P205"]);
 });

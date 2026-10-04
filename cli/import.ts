@@ -59,6 +59,7 @@ export function importSchema(scan: Scan, sources: string[], reporter: Reporter):
     const mapped = isModel ? `${snake(name)}_record` : snake(name);
     const block: string[] = [];
     if (mapped !== cls.name) block.push(`  @@map("${cls.name}")`);
+    if (!isModel) block.push("  @@rows");
     if (isModel) {
       const store = roots.get(cls.name)!;
       if (store !== `${name}Saves`) block.push(`  @@store("${store}")`);
