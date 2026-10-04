@@ -1,0 +1,33 @@
+{
+  "format": 1,
+  "kind": "memory",
+  "stores": [
+    {
+      "model": "Wallet",
+      "store": "WalletSaves",
+      "record": "wallet_record",
+      "version": 1
+    }
+  ],
+  "records": {
+    "wallet_record": [
+      {
+        "name": "c",
+        "type": "int",
+        "default": "1",
+        "api": "Version"
+      },
+      {
+        "name": "l",
+        "type": "int",
+        "default": "0",
+        "api": "Coins"
+      }
+    ]
+  },
+  "enums": {},
+  "migrations": {
+    "WalletSaves": []
+  },
+  "checksum": "sha256:7e34156c5a11ca22bce041ca9884304c5d25b2bbe1a233e61be51f8fe4fc6618"
+}

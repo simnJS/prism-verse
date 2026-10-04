@@ -1,10 +1,10 @@
 import type { Literal } from "./ast.ts";
 import { fresh, pascal, snake } from "./names.ts";
 import {
-  columnType, idField, inModel, isIdList, isMetadata, isNumeric, isPersisted, MODEL_MEMBERS, memberNames, persistedFields, trimmedLists,
+  columnType, flatType, idField, inModel, isIdList, isMetadata, isNumeric, isPersisted, MODEL_MEMBERS, memberNames, persistedFields, trimmedLists,
   type Field, type FieldType, type ModelDecl, type Schema, type TypeDecl,
 } from "./schema.ts";
-import { columnName, shapeFields } from "./shape.ts";
+import { savedName, shapeFields, type ShapeField } from "./shape.ts";
 import { COST, recordFixed, sizeTerms } from "./size.ts";
 import * as text from "./verse_text.ts";
 import { VERSION } from "./version.ts";
@@ -101,7 +101,8 @@ class Generator {
       for (const f of fields) out.line(1, `${f.name} := Source.${f.name}`);
       for (const f of fields) {
         out.blank();
-        out.line(0, `(Record:${d.recordClass}).With${f.name}<public>(Value:${f.type})<transacts>:${d.recordClass} =`);
+        if (d.kind === "model") out.line(0, `(Record:${d.recordClass}).Get${f.helper}<public>()<computes>:${f.type} = Record.${f.name}`);
+        out.line(0, `(Record:${d.recordClass}).With${f.helper}<public>(Value:${f.type})<transacts>:${d.recordClass} =`);
         this.copy(out, 1, d, "Record", [[f.name, "Value"]]);
       }
     }
@@ -153,6 +154,7 @@ class Generator {
       this.storeClass(out, m);
       this.migrated(out, m);
       for (const f of m.fields) this.rowsOf(out, m, f);
+      for (const f of m.fields) this.flatOf(out, m, f);
     }
     for (const t of this.schema.types) this.validated(out, t);
     for (const d of this.decls()) if (d.kind === "model" || recordFixed(d) === undefined) this.sizeOf(out, d);
@@ -182,10 +184,13 @@ class Generator {
     for (const f of this.savedFields(d)) out.line(depth + 1, `${f.name} := ${replaced.get(f.name) ?? `${source}.${f.name}`}`);
   }
 
-  // The fields of a record class: a model's saved shape (lists of flat types become columns), a type's own fields.
-  private savedFields(d: ModelDecl | TypeDecl): { name: string; type: string; default: string }[] {
-    if (d.kind === "model") return shapeFields(this.schema, d);
-    return persistedFields(d).map((f) => ({ name: f.persisted, type: this.verseType(f.type), default: this.persistedDefault(f) }));
+  // The fields of a record class: a model's saved shape (columns, flattened types, short names), a type's own fields.
+  private savedFields(d: ModelDecl | TypeDecl): ShapeField[] {
+    return shapeFields(this.schema, d);
+  }
+
+  private code(m: ModelDecl, key: string): string {
+    return savedName(this.schema, m, key);
   }
 
   private storeType(m: ModelDecl): string {
@@ -332,38 +337,42 @@ class Generator {
     out.line(1, `MarkSaved<internal>(${rec}:${m.recordClass})<transacts>:void =`);
     out.line(2, `set Dirty = false`);
     out.line(2, `set HasRecord = true`);
-    for (const f of metadata) out.line(2, `set ${f.name} = ${rec}.${f.persisted}`);
+    for (const f of metadata) out.line(2, `set ${f.name} = ${rec}.${this.code(m, f.name)}`);
     out.blank();
     out.line(1, `LoadRecord<internal>(${rec}:${m.recordClass})<transacts>:void =`);
     out.line(2, `set HasRecord = true`);
     if (version) {
-      out.line(2, `if (${rec}.${version.persisted} > ${m.version}):`);
+      out.line(2, `if (${rec}.${this.code(m, version.name)} > ${m.version}):`);
       out.line(3, `set ReadOnly = true`);
     }
     const loaded = m.fields.filter((f) => inModel(f) && isPersisted(f));
     for (const f of loaded.filter((x) => !x.counter)) {
-      if (isMetadata(f)) out.line(2, `set ${f.name} = ${rec}.${f.persisted}`);
-      else out.line(2, `set ${f.name} = ${this.loadExpr(f, columnType(f) ? `${rec}.PrismRows${f.persisted}()` : `${rec}.${f.persisted}`, members)}`);
-      if (f.lastSeen) out.line(2, `set OfflineSeconds = PrismOfflineSeconds(${rec}.${f.persisted})`);
+      const src = columnType(f) ? `${rec}.PrismRows${f.name}()` : flatType(f) ? `${rec}.PrismFlat${f.name}()` : `${rec}.${this.code(m, f.name)}`;
+      if (isMetadata(f)) out.line(2, `set ${f.name} = ${src}`);
+      else out.line(2, `set ${f.name} = ${this.loadExpr(f, src, members)}`);
+      if (f.lastSeen) out.line(2, `set OfflineSeconds = PrismOfflineSeconds(${src})`);
     }
     for (const f of loaded.filter((x) => x.counter)) {
       const c = f.counter!;
       const item = fresh("Item", members);
-      out.line(2, `set ${f.name} = Max(${rec}.${f.persisted}, (for (${item} : ${c.list.name}) { ${item}.${c.idField.name} }).PrismNextId())`);
+      out.line(2, `set ${f.name} = Max(${rec}.${this.code(m, f.name)}, (for (${item} : ${c.list.name}) { ${item}.${c.idField.persisted} }).PrismNextId())`);
     }
     out.blank();
     out.line(1, `ToRecord<internal>(${now}:float)<transacts>:${m.recordClass} =`);
     out.line(2, `${m.recordClass}:`);
     for (const f of persistedFields(m)) {
       if (f.deprecated) continue;
-      if (f.version) out.line(3, `${f.persisted} := ${m.version}`);
-      else if (f.lastSeen) out.line(3, `${f.persisted} := ${now}`);
-      else if (f.firstSeen) out.line(3, `${f.persisted} := if (${f.name} > 0.0) then ${f.name} else ${now}`);
-      else if (f.saveCount) out.line(3, `${f.persisted} := ${f.name} + 1`);
+      const code = this.code(m, f.name);
+      if (f.version) out.line(3, `${code} := ${m.version}`);
+      else if (f.lastSeen) out.line(3, `${code} := ${now}`);
+      else if (f.firstSeen) out.line(3, `${code} := if (${f.name} > 0.0) then ${f.name} else ${now}`);
+      else if (f.saveCount) out.line(3, `${code} := ${f.name} + 1`);
       else if (columnType(f)) {
         const item = fresh("Item", members);
-        for (const c of columnType(f)!.fields) out.line(3, `${columnName(f, c)} := for (${item} : ${f.name}) { ${item}.${c.persisted} }`);
-      } else out.line(3, `${f.persisted} := ${f.name}`);
+        for (const c of columnType(f)!.fields) out.line(3, `${this.code(m, `${f.name}.${c.name}`)} := for (${item} : ${f.name}) { ${item}.${c.persisted} }`);
+      } else if (flatType(f)) {
+        for (const c of flatType(f)!.fields) out.line(3, `${this.code(m, `${f.name}.${c.name}`)} := ${f.name}.${c.persisted}`);
+      } else out.line(3, `${code} := ${f.name}`);
     }
     out.blank();
     out.line(1, `Clear<internal>()<transacts>:void =`);
@@ -518,12 +527,12 @@ class Generator {
     out.line(4, `return option{Rec}`);
     let current = "Rec";
     lists.forEach((f, i) => {
-      const step = `Trimmed${f.persisted}`;
-      out.line(2, `${step} := Trim${f.persisted}(${current})`);
+      const step = `Trimmed${f.name}`;
+      out.line(2, `${step} := Trim${f.name}(${current})`);
       out.line(2, `if (${step}?):`);
       out.line(3, `return ${step}`);
       if (i < lists.length - 1) {
-        const next = `Without${f.persisted}`;
+        const next = `Without${f.name}`;
         out.line(2, `${next} := ${this.emptied(current, f)}`);
         current = next;
       }
@@ -531,9 +540,9 @@ class Generator {
     out.line(2, `PrismLog(StoreName(), "save blocked: the record exceeds the player map limit, the last saved record is kept")`);
     out.line(2, `false`);
     for (const f of lists) {
-      const name = f.persisted;
+      const name = f.name;
       const fromEnd = f.trim!.end === "head" ? "true" : "false";
-      const term = sizeTerms(m).terms.find((t) => t.field === f);
+      const term = sizeTerms(this.schema, m).terms.find((t) => t.field === f);
       const keep = keepFn(f);
       out.blank();
       out.line(1, `Trim${name}<private>(Rec:${record}):?${record} =`);
@@ -545,48 +554,59 @@ class Generator {
         const strings = term.strings.map((c) => ` + (Rec.${c}[Index] or "").Length * ${COST.stringChar} + ${COST.stringBase + COST.item}`).join("");
         if (term.strings.length === 0) out.line(2, `KeepCount := if (Count := Quotient[Budget, ${term.rowBytes}]) then Count else 0`);
         else out.line(2, `KeepCount := PrismFitCount(for (Index := 0..${count} - 1) { ${term.rowBytes}${strings} }, Budget, ${fromEnd})`);
-        const columns = columnType(f)!.fields.map((c) => columnName(f, c));
+        const columns = this.savedFields(m).filter((x) => x.list === f);
         out.line(2, `PrismLog(StoreName(), "${name} trimmed from {${count}} to {Min(KeepCount, ${count})} items to fit the player map")`);
-        out.line(2, `option{Rec${columns.map((c) => `.With${c}(Rec.${c}.${keep}(KeepCount))`).join("")}}`);
+        out.line(2, `option{Rec${columns.map((c) => `.With${c.helper}(Rec.${c.name}.${keep}(KeepCount))`).join("")}}`);
         continue;
       }
+      const saved = term?.kind === "fixedList" || term?.kind === "stringList" || term?.kind === "recordList" ? term.name : this.code(m, f.name);
       if (term?.kind === "fixedList") out.line(2, `KeepCount := if (Count := Quotient[Budget, ${term.itemBytes}]) then Count else 0`);
-      else if (term?.kind === "stringList") out.line(2, `KeepCount := PrismFitCount(for (Item : Rec.${name}) { Item.Length * ${COST.stringChar} + ${COST.stringBase + COST.item} }, Budget, ${fromEnd})`);
-      else out.line(2, `KeepCount := PrismFitCount(for (Item : Rec.${name}) { Item.PrismSize() + ${COST.item} }, Budget, ${fromEnd})`);
-      out.line(2, `Kept := Rec.${name}.${keep}(KeepCount)`);
-      out.line(2, `PrismLog(StoreName(), "${name} trimmed from {Rec.${name}.Length} to {Kept.Length} items to fit the player map")`);
+      else if (term?.kind === "stringList") out.line(2, `KeepCount := PrismFitCount(for (Item : Rec.${saved}) { Item.Length * ${COST.stringChar} + ${COST.stringBase + COST.item} }, Budget, ${fromEnd})`);
+      else out.line(2, `KeepCount := PrismFitCount(for (Item : Rec.${saved}) { Item.PrismSize() + ${COST.item} }, Budget, ${fromEnd})`);
+      out.line(2, `Kept := Rec.${saved}.${keep}(KeepCount)`);
+      out.line(2, `PrismLog(StoreName(), "${name} trimmed from {Rec.${saved}.Length} to {Kept.Length} items to fit the player map")`);
       out.line(2, `option{Rec.With${name}(Kept)}`);
     }
   }
 
   // The record without the items of one list (all its columns emptied).
   private emptied(rec: string, f: Field): string {
-    const columns = columnType(f);
-    if (!columns) return `${rec}.With${f.persisted}(array{})`;
-    return rec + columns.fields.map((c) => `.With${columnName(f, c)}(array{})`).join("");
+    if (!columnType(f)) return `${rec}.With${f.name}(array{})`;
+    const m = this.schema.models.find((x) => x.fields.includes(f))!;
+    return rec + this.savedFields(m).filter((x) => x.list === f).map((c) => `.With${c.helper}(array{})`).join("");
   }
 
   // Rebuilds the items of a columnar list; a missing value (a column added later) takes the field's default.
   private rowsOf(out: Lines, m: ModelDecl, f: Field): void {
     const t = columnType(f);
     if (!t || !isPersisted(f) || f.deprecated) return;
-    const lengths = t.fields.map((c) => `Rec.${columnName(f, c)}.Length`).join(", ");
+    const lengths = t.fields.map((c) => `Rec.${this.code(m, `${f.name}.${c.name}`)}.Length`).join(", ");
     out.blank();
-    out.line(0, `(Rec:${m.recordClass}).PrismRows${f.persisted}<internal>()<transacts>:[]${t.recordClass} =`);
+    out.line(0, `(Rec:${m.recordClass}).PrismRows${f.name}<internal>()<transacts>:[]${t.recordClass} =`);
     out.line(1, `for (Index := 0..PrismMaxLength(array{${lengths}}) - 1):`);
     out.line(2, `${t.recordClass}:`);
-    for (const c of t.fields) out.line(3, `${c.persisted} := Rec.${columnName(f, c)}[Index] or ${this.persistedDefault(c)}`);
+    for (const c of t.fields) out.line(3, `${c.persisted} := Rec.${this.code(m, `${f.name}.${c.name}`)}[Index] or ${this.persistedDefault(c)}`);
+  }
+
+  // Rebuilds a flattened type from its fields in the record.
+  private flatOf(out: Lines, m: ModelDecl, f: Field): void {
+    const t = flatType(f);
+    if (!t || !isPersisted(f) || f.deprecated) return;
+    out.blank();
+    out.line(0, `(Rec:${m.recordClass}).PrismFlat${f.name}<internal>()<transacts>:${t.recordClass} =`);
+    out.line(1, `${t.recordClass}:`);
+    for (const c of t.fields) out.line(2, `${c.persisted} := Rec.${this.code(m, `${f.name}.${c.name}`)}`);
   }
 
   private migrated(out: Lines, m: ModelDecl): void {
     if (m.migrations.length === 0) return;
-    const version = m.fields.find((f) => f.version)!.persisted;
+    const version = m.fields.find((f) => f.version)!;
     out.blank();
     out.line(0, `(Rec:${m.recordClass}).PrismMigrated<internal>()<transacts>:${m.recordClass} =`);
     out.line(1, `var Current:${m.recordClass} = Rec`);
     for (const step of m.migrations) {
-      out.line(1, `if (Current.${version} < ${step.step}):`);
-      out.line(2, `set Current = ${step.fn}(Current).With${version}(${step.step})`);
+      out.line(1, `if (Current.${this.code(m, version.name)} < ${step.step}):`);
+      out.line(2, `set Current = ${step.fn}(Current).With${version.name}(${step.step})`);
     }
     out.line(1, `Current`);
   }
@@ -618,10 +638,10 @@ class Generator {
 
   // An upper bound of the serialized size, in bytes (cli/size.ts holds the costs).
   private sizeOf(out: Lines, d: ModelDecl | TypeDecl): void {
-    const { constant, terms } = sizeTerms(d);
+    const { constant, terms } = sizeTerms(this.schema, d);
     const parts = [String(constant)];
     for (const t of terms) {
-      const src = `Rec.${t.field.persisted}`;
+      const src = t.kind === "columns" ? "" : `Rec.${t.name}`;
       switch (t.kind) {
         case "fixedList":
           parts.push(`${src}.Length * ${t.itemBytes}`);

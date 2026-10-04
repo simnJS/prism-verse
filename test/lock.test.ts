@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { Reporter } from "../cli/diagnostics.ts";
 import { buildSnapshot, compareHistory, parseSnapshot, serializeSnapshot, type Snapshot } from "../cli/lock.ts";
+import { assignCodes, codesOf, publishedCodes } from "../cli/naming.ts";
 import { SourceFile } from "../cli/source.ts";
 import { analyze } from "./helpers.ts";
 
@@ -16,6 +17,7 @@ model Save {
   Items   Item[]
   Mode    Mode  = Mode.Easy
   Home    Spot
+  Last    Spot?
   Recent  Int[]       @transient
 
   @@store("SaveData")
@@ -36,6 +38,7 @@ enum Mode { Easy Hard }
 function compare(history: Snapshot[], text: string): Reporter {
   const next = analyze(text);
   assert.deepEqual(next.codes, [], `the edited schema itself is invalid:\n${next.rendered}`);
+  next.schema.codes = assignCodes(next.schema, publishedCodes(history), new Map(), new Set());
   const reporter = new Reporter();
   compareHistory(next.schema, history, reporter);
   return reporter;
@@ -44,6 +47,9 @@ function compare(history: Snapshot[], text: string): Reporter {
 function breaking(edit: (text: string) => string): string[] {
   return compare([buildSnapshot(analyze(BASE).schema)], edit(BASE)).diagnostics.map((d) => d.code);
 }
+
+const base = analyze(BASE).schema;
+const LEVEL = codesOf(base, base.models[0]!).get("Level")!;
 
 const WITH_STEP = BASE.replace('  @@store("SaveData")', '  @@store("SaveData")\n  @@migrate(2, Upgrade)');
 
@@ -54,7 +60,7 @@ test("adding a field with a default is allowed", () => {
 });
 
 test("renaming a field in the API while keeping its saved name is allowed", () => {
-  assert.deepEqual(breaking((t) => t.replace("  Level   Int   = 1\n", '  Rank    Int   = 1 @map("Level")\n')), []);
+  assert.deepEqual(breaking((t) => t.replace("  Level   Int   = 1\n", `  Rank    Int   = 1 @map("${LEVEL}")\n`)), []);
 });
 
 test("adding an enum value and a migration step are allowed", () => {
@@ -87,6 +93,26 @@ test("renaming a type saved in columns is free: its class is not in the save", (
 
 test("P101: switching a published column list to @@rows", () => {
   assert.deepEqual(breaking((t) => t.replace("  Kind Int\n}", "  Kind Int\n\n  @@rows\n}")), ["P101", "P101"]);
+});
+
+test("P101: a published object that would now be flattened suggests @@rows", () => {
+  const rows = BASE.replace("  X Int\n}", "  X Int\n\n  @@rows\n}");
+  const reporter = compare([buildSnapshot(analyze(rows).schema)], BASE);
+  assert.deepEqual(reporter.diagnostics.map((d) => d.code), ["P101"]);
+  assert.equal(reporter.diagnostics[0]?.help, "`Home` was saved as an object: add `@@rows` to `type Spot` to keep that format");
+});
+
+test("a shape published before 0.3 keeps its readable saved names", () => {
+  const short = buildSnapshot(analyze(BASE.replace("  Home    Spot\n", "")).schema);
+  const longNames = buildSnapshot(analyze(`generator {\n  names = "long"\n}\n\n${BASE.replace("  Home    Spot\n", "")}`).schema);
+  for (const fields of Object.values(longNames.records)) for (const f of fields) delete f.api;
+  assert.notDeepEqual(short.records, longNames.records);
+  const reporter = compare([longNames], BASE);
+  assert.deepEqual(reporter.diagnostics.map((d) => d.code), []);
+  const next = analyze(BASE).schema;
+  next.codes = assignCodes(next, publishedCodes([longNames]), new Map(), new Set());
+  assert.equal(codesOf(next, next.models[0]!).get("Level"), "Level");
+  assert.equal(codesOf(next, next.models[0]!).get("Items.Kind"), "Items_Kind");
 });
 
 test("P102: changing the type of a persisted field", () => {
@@ -164,5 +190,6 @@ test("every published shape is checked, and each problem is reported once", () =
 test("a removed field next to a new one of the same type suggests @map", () => {
   const reporter = compare([buildSnapshot(analyze(BASE).schema)], BASE.replace("  Level   Int   = 1\n", "  Rank    Int   = 1\n"));
   assert.equal(reporter.diagnostics[0]?.code, "P101");
-  assert.match(reporter.diagnostics[0]?.help ?? "", /@map\("Level"\)/);
+  assert.equal(reporter.diagnostics[0]?.message, `persisted field \`Level\` (saved as \`${LEVEL}\`) of \`save_record\` was removed`);
+  assert.equal(reporter.diagnostics[0]?.help, `if \`Rank\` is \`Level\` renamed, keep the saved name: \`Rank Int @map("${LEVEL}")\``);
 });

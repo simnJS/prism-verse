@@ -1,0 +1,10 @@
+{
+  "format": 1,
+  "records": {
+    "wallet_record": {
+      "Coins": "x",
+      "LegacyCoins": "l",
+      "Version": "c"
+    }
+  }
+}

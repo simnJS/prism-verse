@@ -53,7 +53,9 @@ export function importSchema(scan: Scan, sources: string[], reporter: Reporter):
         continue;
       }
       const def = schemaDefault(f, enumNames);
-      rows.push([f.name, t, def === undefined ? "" : `= ${def}`]);
+      // A model's fields keep their published names (Prism would give them short codes otherwise).
+      const keep = isModel ? `@map("${f.name}")` : "";
+      rows.push([f.name, t, [def === undefined ? "" : `= ${def}`, keep].filter((x) => x).join(" ")]);
     }
     out.push(...align(rows), ...notes);
     const mapped = isModel ? `${snake(name)}_record` : snake(name);

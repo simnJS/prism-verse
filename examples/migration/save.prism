@@ -1,4 +1,5 @@
-// Money was an Int saved as `Coins`; it becomes a Float saved as `Money`. Old saves go through MoneyToFloat once.
+// Coins was an Int (prism/save/0001.json); it becomes a Float. The old field keeps its saved name, printed by
+// `prism-verse names`, and old saves go through MoneyToFloat once.
 
 datasource {
   kind = "memory"
@@ -10,8 +11,8 @@ generator {
 
 model Wallet {
   Version     Int   = 1 @version
-  LegacyCoins Int       @map("Coins") @deprecated
-  Coins       Float     @map("Money") @min(0.0)
+  LegacyCoins Int   @map("l") @deprecated
+  Coins       Float @min(0.0)
 
   @@migrate(2, MoneyToFloat)
 }

@@ -69,15 +69,15 @@ published version would be lost or misread.
 
 | Code | Meaning | Usual fix |
 |---|---|---|
-| P101 | A persisted field was removed, renamed with `@map`, or made `@transient`. | Put it back with `@deprecated`, or restore its `@map` name. |
+| P101 | A persisted field was removed, renamed, saved under another name, or made `@transient`. | Put it back with `@deprecated`, or keep its saved name with `@map` (the message prints it). |
 | P102 | A persisted field changed type. | Keep the old field (`@deprecated`), add a new one, migrate. |
 | P103 | A persisted default changed. | Keep the old default; use `@initial` for new players. |
-| P104 | A record class was renamed (`@@map`) or a type removed. | Restore the name with `@@map`. |
+| P104 | A record class was renamed (`@@map`), a type removed, or a type saved as objects is now flattened or in columns. | Restore the name with `@@map`, or add `@@rows` to the type. |
 | P105 | An enum value was removed or renamed. | Keep it; add new values at the end. |
 | P106 | A store variable was renamed (`@@store`) or a model removed. | Restore it with `@@store`. |
 | P107 | `datasource.kind` changed. | Changing between memory and player is a new store, not an edit. |
 | P108 | The version went down (a `@@migrate` step was removed). | Keep every step. |
-| P109 | A recorded shape can't be read, comes from a newer Prism, or was edited by hand. | Restore it from version control. |
+| P109 | A published shape or `names.json` can't be read, comes from a newer Prism, or was edited by hand. | Restore it from version control. |
 | P110 | A published `@@migrate` step was changed or removed. | Keep published steps; add a new step for a new conversion. |
 
 ## Check against Verse (P201–P206)

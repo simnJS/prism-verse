@@ -25,6 +25,7 @@ generator {
   methodPrefix = ""            // prefix of the generated methods, to avoid clashes with your own methods
   lib          = "Lib.Prism"   // runtime module path (default: found near the schema)
   using        = ["Balance"]   // modules holding the constants and functions the schema names
+  names        = "short"       // saved field names: "short" codes (default) or "long", the schema names
 }
 
 model PlayerState { … }        // a root: one persisted map, one in-memory model, one store
@@ -45,7 +46,7 @@ are generated `<open>`, so values can be added after publishing.
 |---|---|---|
 | `= value` | persisted field | Default in the record, used when an old save lacks the field. **Frozen once published.** |
 | `@initial(value)` | any field | Value for a brand-new player, when it differs from the persisted default. |
-| `@map("Name")` | persisted field | Field name in the saved data; the API keeps the schema name. |
+| `@map("Name")` | persisted field | Field name in the saved data, instead of a [short name](#saved-names); the API keeps the schema name. |
 | `@min(v)` `@max(v)` | `Int`, `Float` | Clamped on load and by every setter. |
 | `@maxItems(n)` | list | Capped on load and by `Set`; `Push` fails when full, except on a `@trim(head)` list, where it drops the oldest item (a rolling history). |
 | `@trim(head)` `@trim(tail, 2)` | list | When the record doesn't fit, drop items from that end, by priority (1 first). **Only for data you can afford to lose** (history, logs). |
@@ -78,8 +79,10 @@ The current version of a model is its highest `@@migrate` step (1 without migrat
 
 Verse saves every object with its package path, its class name and an `x_` key per field: about 200 bytes before
 the first value. Prism therefore saves a list held by a model as **one array per field** when its type is flat (only
-`Int`, `Float`, `Bool`, `String` and enum fields): `Mines PlacedMine[]` becomes `Mines_Id:[]int`, `Mines_X:[]float`
-and so on in the record. The model still sees a list of `placed_mine` objects; only saving and loading convert.
+`Int`, `Float`, `Bool`, `String` and enum fields): `Mines PlacedMine[]` becomes one `[]int` for `Mines.Id`, one
+`[]float` for `Mines.X` and so on in the record. The model still sees a list of `placed_mine` objects; only saving
+and loading convert. A single field of a flat type (`Home Spot`) is saved the same way, as fields of the record
+(`Home.X`, `Home.Y`) without an object; an option of it (`Spot?`) stays an object.
 Measured in a live session (`examples/measure`): a mine takes 208 bytes as an object and 29 bytes in columns, so 7×
 more fit in the same save.
 
@@ -89,6 +92,28 @@ more fit in the same save.
   `P042` says why. Lists inside a `type` are always objects.
 - `@@rows` keeps objects on purpose, for a format you already published (`import` adds it for you). Without that
   reason, `P043` reminds you that columns are several times smaller.
+
+### Saved names
+
+Verse saves the name of every field of a record. Prism saves each field of a model under a short name of one or two
+characters, so `Coins` is saved as `l` and `Mines.OreId` as `q`. Your code never sees these names: the model and the
+record's `Get<Field>()` and `With<Field>(V)` helpers use the schema names. `prism-verse names save.prism` prints the
+table.
+
+- **Stable.** A field's short name comes from a hash of its name, never from its position: reordering fields changes
+  nothing. Each name is a valid Verse identifier, never a keyword, a built-in or a module of your project.
+- **Recorded.** `generate` writes the table to `prism/<schema>/names.json`. Commit it with the schema, as you would
+  commit Prisma migrations: a new field never takes the name of an existing one, and a removed field's name stays
+  reserved so another field never reads its old data. An unreadable `names.json` stops generation (`P109`) rather
+  than assigning names again.
+- **Frozen.** `lock` records the names in the published shape. Renaming a published field in the schema needs
+  `@map` with its saved name, and `P101` prints the line to write: `Rank Int @map("b")`.
+- **Your choice.** `@map("Name")` saves a field under the name you give. `names = "long"` in the `generator` block
+  saves the schema names (`Coins`, `Mines_OreId`) for fields that don't have a published name yet.
+
+Types keep their field names and class names, because a type is also the class your game builds (`card{Uid := 1}`).
+Their per-object cost is removed by columns and flattening instead: an object in columns saves no class name and no
+key at all.
 
 ### Verse pitfalls Prism catches
 
@@ -102,13 +127,14 @@ more fit in the same save.
 
 Persisted fields can only be added, never removed or retyped, so a change of meaning is a migration: mark the old
 field `@deprecated` (it stays readable), add the new one, and name a Verse function that converts the record
-([examples/migration](../examples/migration)):
+([examples/migration](../examples/migration)). Here, `Coins` was an `Int` saved as `l`; the old field keeps that
+name and the new `Coins` gets its own:
 
 ```prisma
 model Wallet {
   Version     Int   = 1 @version
-  LegacyCoins Int       @map("Coins") @deprecated
-  Coins       Float     @map("Money") @min(0.0)
+  LegacyCoins Int   @map("l") @deprecated
+  Coins       Float @min(0.0)
 
   @@migrate(2, MoneyToFloat)
 }
@@ -116,11 +142,12 @@ model Wallet {
 
 ```verse
 MoneyToFloat(Rec:wallet_record)<transacts>:wallet_record =
-    Rec.WithMoney(1.0 * Max(Rec.Coins, 0))
+    Rec.WithCoins(1.0 * Max(Rec.GetLegacyCoins(), 0))
 ```
 
-Steps run in order on the persisted record (persisted names). The whole chain and the validation run before your
-code sees the data. A migrated record is written back only after the next real change.
+Steps run in order on the persisted record. Read and write it with `Get<Field>()` and `With<Field>(V)`, named after
+the schema fields; the record's own fields carry the saved names. The whole chain and the validation run before
+your code sees the data. A migrated record is written back only after the next real change.
 
 ## Generated API
 
@@ -128,7 +155,7 @@ For `model PlayerSave` (names follow `@@map`, `@@store` and `methodPrefix`):
 
 | Generated | What |
 |---|---|
-| `player_save_record`, `card` | The `<final><persistable>` classes, with `MakeX<constructor>` copies and `(R:x).With<Field>(V)` helpers. |
+| `player_save_record`, `card` | The `<final><persistable>` classes, with `MakeX<constructor>` copies and `(R:x).With<Field>(V)` helpers. A model record also has `Get<Field>()`; its columns and flattened fields are named `GetCardsUid()`, `WithHomeX(V)`. |
 | `player_save` | The model. Fields are public to read and written only through setters, so changes are always tracked. |
 | `SetCoins(V)`, `AddCoins(D)`, `ToggleX()` | Scalars: set (clamped), add, flip a `Bool`. All `<transacts>`. |
 | `SetCards(L)` | Plural: the whole list. |
@@ -229,9 +256,10 @@ save.prism:12:15 error[P103]: persisted default of `DroneCount` changed from `1`
 Adopt Prism without touching existing saves:
 
 1. `prism-verse import PlayerData/player_save.verse PlayerData/records.verse --out PlayerData/save.prism` writes a
-   schema that reproduces your persistable classes. Its types get `@@rows`, because your saves hold objects.
+   schema that reproduces your persistable classes. Its types get `@@rows`, because your saves hold objects, and
+   each model field gets `@map` with its current name.
 2. `prism-verse lock PlayerData/save.prism` records that shape as published.
-3. Improve the schema: rename fields in the API with `@map`, add validators, migrations and caps.
+3. Improve the schema: rename fields freely (`@map` keeps their saved names), add validators, migrations and caps.
 4. `prism-verse check PlayerData/save.prism --against PlayerData/player_save.verse PlayerData/records.verse` must
    report 0 differences.
 5. `prism-verse generate`, then delete the hand-written classes. They are in the same module, so their identity
@@ -242,8 +270,9 @@ Adopt Prism without touching existing saves:
 | Command | What |
 |---|---|
 | `init <dir> [--demo] [--sync]` | Copies the Verse runtime (and the demos) into your project, and prints the `modules.verse` line. |
-| `generate <schema> [--check]` | Writes the Verse files, only when their content changes. `--check` fails instead of writing. |
-| `lock <schema>` | Records the published shape. |
+| `generate <schema> [--check]` | Writes the Verse files and `names.json`, only when their content changes. `--check` fails instead of writing. |
+| `lock <schema>` | Records the published shape and prints the saved names. |
+| `names <schema>` | Prints the saved name of every field. |
 | `check <schema> [--against a.verse …]` | Validates the schema against the published shapes and, with `--against`, against existing classes. |
 | `import <a.verse …>` | Writes a schema from existing persistable classes. |
 | `explain <code>` | What a code means and how to fix it. All codes: [errors.md](errors.md). |

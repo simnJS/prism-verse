@@ -8,6 +8,7 @@ import { schemaHash } from "./hash.ts";
 import { importSchema } from "./import.ts";
 import { detectLib, init } from "./init.ts";
 import { buildSnapshot, compareHistory, parseSnapshot, serializeSnapshot, type Snapshot } from "./lock.ts";
+import { assignCodes, parseNames, publishedCodes, savedKeys, serializeNames } from "./naming.ts";
 import { snake } from "./names.ts";
 import { checkReservedNames, loadSchema, type Schema, type StoreKind } from "./schema.ts";
 import { SourceFile } from "./source.ts";
@@ -22,6 +23,7 @@ Usage:
   prism-verse lock <schema>                      record the published shape (run it when you publish)
   prism-verse check <schema> [--against <file.verse>...]
   prism-verse import <file.verse>... [--out <schema>]
+  prism-verse names <schema>                     the saved name (short code) of every field
   prism-verse explain <code>                     what an error code means and how to fix it
 
 Options:
@@ -60,6 +62,7 @@ export function run(argv: string[], io: Io): number {
     case "generate":
     case "lock":
     case "check":
+    case "names":
       return runSchemaCommand(command, rest, args, io, format);
     case "import":
       return runImport(rest, args, io, format);
@@ -145,7 +148,7 @@ function readHistory(io: Io, schemaPath: string, reporter: Reporter): { snapshot
   return { snapshots, next: join(dir, `${String(number).padStart(4, "0")}.json`), latest };
 }
 
-function runSchemaCommand(command: "generate" | "lock" | "check", rest: string[], args: Args, io: Io, format: Format): number {
+function runSchemaCommand(command: "generate" | "lock" | "check" | "names", rest: string[], args: Args, io: Io, format: Format): number {
   const reporter = new Reporter();
   if (rest.length !== 1) {
     io.err(`error: \`${command}\` takes one schema file\n\n${USAGE}`);
@@ -166,6 +169,12 @@ function runSchemaCommand(command: "generate" | "lock" | "check", rest: string[]
   const modules = projectModules(dirname(schemaPath));
   if (!reporter.hasErrors) checkReservedNames(schema, modules, reporter);
   const history = readHistory(io, schemaPath, reporter);
+  const namesPath = join(historyDir(schemaPath), "names.json");
+  const previous = existsSync(namesPath) ? parseNames(readFileSync(namesPath, "utf8")) : undefined;
+  if (existsSync(namesPath) && !previous) {
+    reporter.error("P109", `can't read the saved names in ${display(io, namesPath)}`, undefined, { help: "restore it from version control: assigning the names again would lose the data saved under the old ones" });
+  }
+  if (!reporter.hasErrors) schema.codes = assignCodes(schema, publishedCodes(history.snapshots), previous ?? new Map(), modules);
   if (!reporter.hasErrors) compareHistory(schema, history.snapshots, reporter);
   justifyRows(schema, history.snapshots, reporter);
   if (command === "check" && !reporter.hasErrors) {
@@ -176,13 +185,44 @@ function runSchemaCommand(command: "generate" | "lock" | "check", rest: string[]
     }
   }
   if (reporter.hasErrors) return finish(reporter, io, format);
-  if (command === "lock") return writeSnapshot(schema, history, reporter, io, format);
+  if (command === "names") {
+    report(reporter, io, format);
+    io.out(nameTable(schema));
+    return 0;
+  }
+  const namesText = serializeNames(schema.codes!);
+  const namesStale = !existsSync(namesPath) || readFileSync(namesPath, "utf8") !== namesText;
+  if (command === "lock") {
+    if (namesStale) writeText(namesPath, namesText);
+    return writeSnapshot(schema, history, reporter, io, format);
+  }
   if (command === "check") {
     report(reporter, io, format);
     io.out(`${display(io, schemaPath)}: ok`);
     return 0;
   }
-  return writeGenerated(schema, file.text, schemaPath, args, reporter, io, modules, format);
+  return writeGenerated(schema, file.text, schemaPath, args, reporter, io, modules, format, namesStale ? { path: namesPath, text: namesText } : undefined);
+}
+
+function writeText(path: string, text: string): void {
+  mkdirSync(dirname(path), { recursive: true });
+  writeFileSync(path, text);
+}
+
+// "Model.Field -> saved name", per model.
+export function nameTable(schema: Schema): string {
+  const lines: string[] = [];
+  for (const m of schema.models) {
+    const codes = schema.codes?.get(m.recordClass);
+    lines.push(`${m.name} (${m.recordClass})`);
+    const keys = savedKeys(m);
+    const width = Math.max(...keys.map((k) => k.key.length));
+    for (const k of keys) lines.push(`  ${k.key.padEnd(width)}  ->  ${codes?.get(k.key) ?? k.long}${k.explicit ? "   (@map)" : ""}`);
+    const current = new Set(keys.map((k) => k.key));
+    const retired = [...(codes ?? [])].filter(([key]) => !current.has(key)).map(([key, code]) => `${code} (${key})`);
+    if (retired.length > 0) lines.push(`  reserved by removed fields: ${retired.join(", ")}`);
+  }
+  return lines.join("\n");
 }
 
 // `@@rows` on a type whose objects are already in a published shape keeps that format on purpose: no P043.
@@ -205,10 +245,11 @@ function writeSnapshot(schema: Schema, history: { next: string; latest: string |
   mkdirSync(dirname(history.next), { recursive: true });
   writeFileSync(history.next, text);
   io.out(`recorded the published shape in ${display(io, history.next)}; commit it with your release`);
+  io.out(nameTable(schema));
   return 0;
 }
 
-function writeGenerated(schema: Schema, schemaText: string, schemaPath: string, args: Args, reporter: Reporter, io: Io, modules: ReadonlySet<string>, format: Format): number {
+function writeGenerated(schema: Schema, schemaText: string, schemaPath: string, args: Args, reporter: Reporter, io: Io, modules: ReadonlySet<string>, format: Format, names?: { path: string; text: string }): number {
   const outDir = resolve(io.cwd, args.values.get("out")?.[0] ?? dirname(schemaPath));
   let lib = args.values.get("lib")?.[0] ?? schema.settings.lib ?? detectLib(dirname(schemaPath));
   if (!lib) {
@@ -224,6 +265,10 @@ function writeGenerated(schema: Schema, schemaText: string, schemaPath: string, 
   });
   if (args.flags.has("check")) {
     report(reporter, io, format);
+    if (names) {
+      io.err(`error: ${display(io, names.path)} is out of date\n  = help: run \`prism-verse generate ${display(io, schemaPath)}\` and commit the file`);
+      return 1;
+    }
     if (stale.length === 0) {
       io.out(`${display(io, schemaPath)}: generated files are up to date`);
       return 0;
@@ -240,6 +285,10 @@ function writeGenerated(schema: Schema, schemaText: string, schemaPath: string, 
     } catch (e) {
       reporter.error("P902", `can't write ${display(io, path)}: ${e instanceof Error ? e.message : String(e)}`);
     }
+  }
+  if (names) {
+    writeText(names.path, names.text);
+    written.push(display(io, names.path));
   }
   report(reporter, io, format);
   if (reporter.hasErrors) return 1;

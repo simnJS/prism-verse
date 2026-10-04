@@ -58,6 +58,30 @@ test("generate --check fails when the generated files are stale, without writing
   writeFileSync(join(temp, "save.prism"), schema);
 });
 
+test("names prints the saved name of every field; names.json is the source of truth", () => {
+  const names = cli("names", "save.prism");
+  assert.equal(names.code, 0, names.err);
+  assert.match(names.out, /^PlayerSave \(player_save_record\)$/m);
+  assert.match(names.out, /^  Coins +-> {2}[a-z][a-z0-9]?$/m);
+  const path = join(temp, "prism/save/names.json");
+  const saved = readFileSync(path, "utf8");
+  rmSync(path);
+  const missing = cli("generate", "save.prism", "--check");
+  assert.equal(missing.code, 1);
+  assert.match(missing.err, /names\.json is out of date/);
+  assert.equal(cli("generate", "save.prism").code, 0);
+  assert.equal(readFileSync(path, "utf8"), saved);
+  writeFileSync(path, saved.replace(/"Coins": "[a-z0-9]+"/, '"Coins": "zz"'));
+  assert.equal(cli("generate", "save.prism").code, 0);
+  assert.match(readFileSync(join(temp, "player_save_records.verse"), "utf8"), /^ {4}zz<public>:float = 0\.0$/m);
+  writeFileSync(path, "{");
+  const unreadable = cli("generate", "save.prism");
+  assert.equal(unreadable.code, 1);
+  assert.match(unreadable.err, /error\[P109\]/);
+  writeFileSync(path, saved);
+  assert.equal(cli("generate", "save.prism").code, 0);
+});
+
 test("lock records a shape once, then a breaking edit fails with the field and the fix", () => {
   const first = cli("lock", "save.prism");
   assert.equal(first.code, 0, first.err);

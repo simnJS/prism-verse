@@ -1,0 +1,16 @@
+{
+  "format": 1,
+  "records": {
+    "player_save_record": {
+      "Cards.Golden": "p",
+      "Cards.Kind": "d",
+      "Cards.Uid": "n",
+      "Coins": "l",
+      "LastSeen": "o",
+      "Level": "b",
+      "NextCard": "m",
+      "RecentDrops": "g",
+      "Version": "c"
+    }
+  }
+}

@@ -24,6 +24,8 @@ model PlayerProfile {
   NextSpot  Int    = 1   @counter(Spots.Uid)
   History   Int[]        @trim(head) @item("Entry")
   Trophies  Trophy[]     @maxItems(64) @trim(tail, 3)
+  Featured  Trophy
+  Spare     Trophy?
   Scale     Float  = 1.0 @min(0.5) @max(4.0)
   Muted     Bool
   Saves     Int          @saveCount

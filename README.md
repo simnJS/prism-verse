@@ -3,8 +3,8 @@
 **Typed player data for UEFN Verse.** Write your player save once, in a small schema. Prism generates the Verse code
 that loads, validates, migrates and saves it, and refuses any edit that would break saves you have already published.
 
-> **Status: alpha.** Generated code verified with UEFN 42.30: compile, BuildAll, and for 0.2 a 33-check self-test in
-> a live session.
+> **Status: alpha.** Generated code verified with UEFN 42.30: compile and BuildAll for 0.3, and a 33-check self-test
+> in a live session for 0.2.
 
 ```
 save.prism ──prism-verse generate──▶ player_save_records.verse   the persisted contract
@@ -25,7 +25,8 @@ The mistakes are silent:
 Prism generates the four places from one schema, checks every edit against what you published, and guards every
 write. It also saves lists compactly: Verse's format repeats about 200 bytes of metadata for every object in a list,
 so Prism saves a list of flat items as one array per field ("columns") and rebuilds the objects on load. Measured in
-a live session: a mine takes 208 bytes as an object and 29 bytes in columns, so 7× more fit in the same save.
+a live session: a mine takes 208 bytes as an object and 29 bytes in columns, so 7× more fit in the same save. Saved
+field names are one or two characters, and your code never sees them.
 
 ## Install
 
@@ -72,7 +73,8 @@ type Card {
 }
 ```
 
-**3. Generate.** Three `.verse` files appear next to the schema, in the same module as your game.
+**3. Generate.** Three `.verse` files appear next to the schema, in the same module as your game, with
+`prism/save/names.json`: the short name each field is saved under. Commit it, as you would commit Prisma migrations.
 
 ```
 prism-verse generate Content/Verse/Game/save.prism
@@ -97,7 +99,8 @@ ReadmeUsage(Player:player):void =
             Save.Commit()
 ```
 
-**6. When you publish**, record the published shape. From then on, `generate` refuses any edit that would break it.
+**6. When you publish**, record the published shape. From then on, `generate` refuses any edit that would break it,
+and the saved names are frozen.
 
 ```
 prism-verse lock Content/Verse/Game/save.prism
@@ -105,15 +108,15 @@ prism-verse lock Content/Verse/Game/save.prism
 
 ## Migrations
 
-Published fields can't be removed or retyped. When one changes meaning, keep it as `@deprecated` and convert it in a
-plain Verse function. Here, money was an `Int` saved as `Coins` and became a `Float` saved as `Money`
-([examples/migration](examples/migration)):
+Published fields can't be removed or retyped. When one changes meaning, keep it as `@deprecated` under its saved
+name and convert it in a plain Verse function. Here, `Coins` was an `Int` saved as `l` (`prism-verse names` prints
+it) and becomes a `Float` ([examples/migration](examples/migration)):
 
 ```prisma
 model Wallet {
   Version     Int   = 1 @version
-  LegacyCoins Int       @map("Coins") @deprecated
-  Coins       Float     @map("Money") @min(0.0)
+  LegacyCoins Int   @map("l") @deprecated
+  Coins       Float @min(0.0)
 
   @@migrate(2, MoneyToFloat)
 }
@@ -121,15 +124,17 @@ model Wallet {
 
 ```verse
 MoneyToFloat(Rec:wallet_record)<transacts>:wallet_record =
-    Rec.WithMoney(1.0 * Max(Rec.Coins, 0))
+    Rec.WithCoins(1.0 * Max(Rec.GetLegacyCoins(), 0))
 ```
 
 ## How saving works
 
 - A changed player is written at most once per second (`FlushSeconds`, 0 for every tick), so a crash loses at most
   one second. `Commit()` writes at the next tick: use it for purchases and rare drops.
-- Lists of flat items (only `Int`, `Float`, `Bool`, `String` and enum fields) are saved in columns. `@@rows` on a type
-  keeps one object per item, for a format you already published.
+- Lists of flat items (only `Int`, `Float`, `Bool`, `String` and enum fields) are saved in columns, and a single flat
+  item as fields of the record. `@@rows` on a type keeps objects, for a format you already published.
+- Each saved field gets a name of one or two characters (`Coins` is saved as `l`). It never moves when you reorder
+  or add fields, `lock` freezes it, and `@map("Name")` picks your own.
 - Nothing is written before the first real change, so a failed load can never overwrite real data with defaults.
 - Prism never relies on a save when a player leaves: UEFN doesn't guarantee it.
 - An oversized write never reaches the server. Lists marked `@trim` are cut; otherwise the last good save is kept.
@@ -149,7 +154,8 @@ Good to know: **rolling back an island wipes all player data**, and an island ha
 - [Error codes](docs/errors.md), [patterns](docs/patterns.md) (purchases, hot/cold split) and
   [design research](docs/research.md).
 - [examples/](examples): the quickstart, the save of a real tycoon game ([sellthings](examples/sellthings)), a
-  [migration](examples/migration), and the objects-versus-columns [measure](examples/measure) used by the self-test.
+  [migration](examples/migration), and the [measures](examples/measure) of the self-test (objects versus columns,
+  readable versus short names).
 - [Contributing](CONTRIBUTING.md).
 
 ## License

@@ -1,6 +1,7 @@
 import type { AttributeNode, BlockNode, Container, EnumNode, FieldNode, Literal, SchemaNode, SettingsNode } from "./ast.ts";
 import type { Reporter } from "./diagnostics.ts";
 import { closest, isBuiltin, isIdentifier, isReserved, singular, snake } from "./names.ts";
+import type { CodeTable } from "./naming.ts";
 import { PLAYER_MAP_LIMIT, worstCase } from "./size.ts";
 import { parse } from "./parser.ts";
 import type { SourceFile, Span } from "./source.ts";
@@ -26,6 +27,7 @@ export interface Trim {
 export interface Field {
   name: string;
   persisted: string;
+  mapped: boolean; // @map fixes the saved name
   type: FieldType;
   def: Literal | undefined;
   initial: Literal | undefined;
@@ -92,6 +94,7 @@ export interface Settings {
   lib: string | undefined;
   using: string[];
   copy: "constructor" | "explicit";
+  names: "short" | "long";
 }
 
 export interface Schema {
@@ -100,6 +103,7 @@ export interface Schema {
   models: ModelDecl[];
   types: TypeDecl[];
   enums: EnumDecl[];
+  codes?: CodeTable; // saved names of the model records, set by the CLI from names.json and published shapes
 }
 
 export function loadSchema(file: SourceFile, reporter: Reporter, defaultPrefix: string): Schema {
@@ -140,6 +144,13 @@ export function columnEligible(t: TypeDecl): boolean {
 // Only a list held by a model: a nested type is both the saved object and the in-memory value, so it can't hold columns.
 export function columnType(f: Field): TypeDecl | undefined {
   if (!f.owner || f.type.container !== "list" || f.type.base.kind !== "record") return undefined;
+  const t = f.type.base.decl;
+  return !t.rows && columnEligible(t) ? t : undefined;
+}
+
+// A single field of a flat type held by a model: its fields are saved as fields of the record (no object).
+export function flatType(f: Field): TypeDecl | undefined {
+  if (!f.owner || f.type.container !== "none" || f.type.base.kind !== "record") return undefined;
   const t = f.type.base.decl;
   return !t.rows && columnEligible(t) ? t : undefined;
 }
@@ -194,12 +205,12 @@ class Analyzer {
   }
 
   private settings(nodes: SettingsNode[], defaultPrefix: string): Settings {
-    const s: Settings = { kind: "player", prefix: defaultPrefix, methodPrefix: "", lib: undefined, using: [], copy: "constructor" };
+    const s: Settings = { kind: "player", prefix: defaultPrefix, methodPrefix: "", lib: undefined, using: [], copy: "constructor", names: "short" };
     const seen = new Set<string>();
     for (const node of nodes) {
       if (seen.has(node.keyword)) this.error("P010", `\`${node.keyword}\` is declared twice`, node.span);
       seen.add(node.keyword);
-      const allowed = node.keyword === "datasource" ? ["kind"] : ["prefix", "methodPrefix", "lib", "using", "copy"];
+      const allowed = node.keyword === "datasource" ? ["kind"] : ["prefix", "methodPrefix", "lib", "using", "copy", "names"];
       for (const { key, value } of node.entries) {
         if (!allowed.includes(key.text)) {
           const hint = closest(key.text, allowed);
@@ -229,6 +240,9 @@ class Analyzer {
         } else if (key.text === "lib") {
           if (/^[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)*$/.test(v) || v.startsWith("/")) s.lib = v;
           else this.error("P006", "`lib` is a module path such as \"Lib.Prism\"", value.span);
+        } else if (key.text === "names") {
+          if (v === "short" || v === "long") s.names = v;
+          else this.error("P006", '`names` is "short" (saved names of one or two characters) or "long" (the field names)', value.span);
         } else if (key.text === "copy") {
           if (v === "constructor" || v === "explicit") s.copy = v;
           else this.error("P006", '`copy` is "constructor" or "explicit"', value.span);
@@ -317,6 +331,7 @@ class Analyzer {
     const f: Field = {
       name: node.name.text,
       persisted: node.name.text,
+      mapped: false,
       type,
       def: node.default,
       initial: undefined,
@@ -412,7 +427,10 @@ class Analyzer {
         if (!arity(1)) break;
         const arg = a.args[0]!;
         if (arg.kind !== "string" || !isIdentifier(arg.value) || isReserved(arg.value)) this.error("P015", "`@map` takes the saved field name as a string", arg.span, { help: '`@map("Money")`' });
-        else f.persisted = arg.value;
+        else {
+          f.persisted = arg.value;
+          f.mapped = true;
+        }
         break;
       }
       case "min":
@@ -634,7 +652,7 @@ class Analyzer {
     for (const f of d.fields) {
       const at = f.node.name.span;
       const conflict = (a: string, b: string): void => this.error("P018", `\`@${a}\` and \`@${b}\` can't be combined`, at);
-      if (f.transient && f.persisted !== f.name) conflict("transient", "map");
+      if (f.transient && f.mapped) conflict("transient", "map");
       if (f.transient && f.deprecated) conflict("transient", "deprecated");
       if (f.transient && f.version) conflict("transient", "version");
       if (f.transient && f.lastSeen) conflict("transient", "lastSeen");

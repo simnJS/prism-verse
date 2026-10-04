@@ -1,0 +1,42 @@
+{
+  "format": 1,
+  "records": {
+    "player_state_record": {
+      "AutoRollLevel": "o",
+      "AutoRollOn": "v",
+      "BoostOres": "z",
+      "Coins": "l",
+      "CrateCount": "f",
+      "CrateValue": "w",
+      "DroneCount": "t",
+      "DroneSpeedLevel": "x",
+      "FirstSeen": "n",
+      "FurnaceLevel": "h",
+      "FuserBuilt": "g",
+      "Inventory.Count": "j",
+      "Inventory.OreId": "y",
+      "LastSeen": "c",
+      "LuckLevel": "m",
+      "Mines.Id": "s",
+      "Mines.Level": "r",
+      "Mines.Mutation": "d",
+      "Mines.OreId": "q",
+      "Mines.Turns": "nf",
+      "Mines.X": "rq",
+      "Mines.Y": "p",
+      "NextMineId": "cu",
+      "NextPetUid": "k",
+      "OwnedPets.Equipped": "a",
+      "OwnedPets.Fusion": "i",
+      "OwnedPets.PetId": "w7",
+      "OwnedPets.Uid": "gn",
+      "PedestalLevel": "r5",
+      "RegenLevel": "jd",
+      "SaveCount": "lb",
+      "TutorialStep": "iw",
+      "UnlockedCells": "e",
+      "Version": "sa",
+      "YieldLevel": "es"
+    }
+  }
+}

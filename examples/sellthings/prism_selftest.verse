@@ -6,6 +6,10 @@ using { prism_demo_constants }
 
 # Prints PASS/FAIL lines for the generated code: data checks at simulation start, then the size measurement, then
 # store checks once a round starts.
+names_case<public> := enum{LongEmpty, ShortEmpty, LongPlayed, ShortPlayed}
+
+NamesNow<public>:float = 1760000000.0
+
 prism_selftest_component<public> := class<final_super>(component):
     var Passed<private>:int = 0
     var Failed<private>:int = 0
@@ -42,32 +46,30 @@ prism_selftest_component<public> := class<final_super>(component):
         Rec := Played.ToRecord(1000.0)
         Reloaded := player_state{}
         Reloaded.LoadRecord(Rec)
-        Expect("a list of a flat type is saved in columns", if (Rec.Mines_Id.Length = 1, Rec.Mines_X.Length = 1, X := Rec.Mines_X[0], X = 1234.5) then true else false)
-        Expect("ToRecord then LoadRecord keeps every saved field", if (Reloaded.Coins = 120.5, Reloaded.LuckLevel = 4, Kept := Reloaded.Mines[0], Kept.X = 1234.5, Kept.Level = 3, Reloaded.NextMineId = 2, Rec.Version = 1, Rec.LastSeen = 1000.0, Rec.SaveCount = 1, Rec.FirstSeen = 1000.0) then true else false)
+        Expect("a list of a flat type is saved in columns", if (Rec.GetMinesId().Length = 1, Xs := Rec.GetMinesX(), Xs.Length = 1, X := Xs[0], X = 1234.5) then true else false)
+        Expect("ToRecord then LoadRecord keeps every saved field", if (Reloaded.Coins = 120.5, Reloaded.LuckLevel = 4, Kept := Reloaded.Mines[0], Kept.X = 1234.5, Kept.Level = 3, Reloaded.NextMineId = 2, Rec.GetVersion() = 1, Rec.GetLastSeen() = 1000.0, Rec.GetSaveCount() = 1, Rec.GetFirstSeen() = 1000.0) then true else false)
         Expect("transient fields are not saved", if (Reloaded.HeldOre = -1) then true else false)
 
-        Older := player_state_record{Mines_Id := array{4, 8}, Mines_OreId := array{1, 2}, Mines_Level := array{6}}
+        Older := player_state_record{}.WithMinesId(array{4, 8}).WithMinesOreId(array{1, 2}).WithMinesLevel(array{6})
         Padded := player_state{}
         Padded.LoadRecord(Older)
         Expect("a column added later takes the field's default", if (Padded.Mines.Length = 2, Second := Padded.Mines[1], Second.Id = 8, Second.Level = 0, Second.X = 0.0) then true else false)
 
-        Upgraded := wallet_record{Version := 1, Coins := 40}.PrismMigrated()
-        Expect("an old save goes through its migration", if (Upgraded.Version = 2, Upgraded.Money = 40.0) then true else false)
-        Current := wallet_record{Version := 2, Coins := 40, Money := 9.0}.PrismMigrated()
-        Expect("a current save skips the migrations", if (Current.Money = 9.0) then true else false)
+        Upgraded := wallet_record{}.WithVersion(1).WithLegacyCoins(40).PrismMigrated()
+        Expect("an old save goes through its migration", if (Upgraded.GetVersion() = 2, Upgraded.GetCoins() = 40.0) then true else false)
+        Current := wallet_record{}.WithVersion(2).WithLegacyCoins(40).WithCoins(9.0).PrismMigrated()
+        Expect("a current save skips the migrations", if (Current.GetCoins() = 9.0) then true else false)
 
-        Broken := player_state_record:
-            LuckLevel := -3
-            DroneCount := 0
-            Coins := -5.0
-            Inventory_OreId := array{1, 99, 2}
-            Inventory_Count := array{0, 2, 3}
-            Mines_Id := array{4, 8}
-            Mines_OreId := array{1, 77}
-            Mines_Turns := array{9, 0}
-            Mines_Mutation := array{42, 0}
-            NextMineId := 1
-            BoostOres := array{3, 500}
+        Pointed := size_probe{}
+        Pointed.SetOrigin(point{X := 1.5, Y := -2.5})
+        Flat := Pointed.ToRecord(0.0)
+        Back := size_probe{}
+        Back.LoadRecord(Flat)
+        Expect("a single flat type is saved as fields of the record", if (Flat.GetOriginX() = 1.5, Flat.GetOriginY() = -2.5, Back.Origin.X = 1.5, Back.Origin.Y = -2.5) then true else false)
+
+        Numbers := player_state_record{}.WithLuckLevel(-3).WithDroneCount(0).WithCoins(-5.0).WithNextMineId(1)
+        Stacks := Numbers.WithInventoryOreId(array{1, 99, 2}).WithInventoryCount(array{0, 2, 3}).WithBoostOres(array{3, 500})
+        Broken := Stacks.WithMinesId(array{4, 8}).WithMinesOreId(array{1, 77}).WithMinesTurns(array{9, 0}).WithMinesMutation(array{42, 0})
         Loaded := player_state{}
         Loaded.LoadRecord(Broken)
         Expect("load clamps numbers", if (Loaded.LuckLevel = 0, Loaded.DroneCount = StartDrones, Loaded.Coins = 0.0) then true else false)
@@ -106,11 +108,11 @@ prism_selftest_component<public> := class<final_super>(component):
         Expect("a failed transaction cancels its changes and its Commit", if (Rolled.Coins = StartCoins, not Rolled.TakeCommit[]) then true else false)
 
         Newer := player_state{}
-        Newer.LoadRecord(player_state_record{Version := 99})
+        Newer.LoadRecord(player_state_record{}.WithVersion(99))
         Expect("a save newer than the code is read-only", if (Newer.ReadOnly?) then true else false)
 
         Small := player_state_record{}
-        Large := player_state_record{Mines_Id := for (Index := 1..300) { Index }}
+        Large := player_state_record{}.WithMinesId(for (Index := 1..300) { Index })
         Expect("PrismSize grows with the lists", if (Small.PrismSize() < PrismPlayerMapBudget, Large.PrismSize() >= Small.PrismSize() + 300 * 100) then true else false)
 
     # The real gain of columns: how many mines fit in one player map, as objects and as columns. One
@@ -121,6 +123,12 @@ prism_selftest_component<public> := class<final_super>(component):
         if (RowBytes := Quotient[262144, Rows], ColumnBytes := Quotient[262144, Columns]):
             Print("[prism selftest] measured: {Rows} mines fit as objects ({RowBytes} bytes each), {Columns} in columns ({ColumnBytes} bytes each), {1.0 * Columns / (1.0 * Rows)}x more")
         Expect("columns hold more mines than objects", if (Columns > Rows) then true else false)
+        LongEmpty := RecordBytes(names_case.LongEmpty)
+        ShortEmpty := RecordBytes(names_case.ShortEmpty)
+        LongPlayed := RecordBytes(names_case.LongPlayed)
+        ShortPlayed := RecordBytes(names_case.ShortPlayed)
+        Print("[prism selftest] measured: the SellThings save takes {LongEmpty} bytes new and {LongPlayed} played with readable names, {ShortEmpty} and {ShortPlayed} with short names")
+        Expect("short saved names make the record smaller", if (ShortEmpty < LongEmpty, ShortPlayed < LongPlayed) then true else false)
         Report("measure")
 
     MostThatFit<private>(Columns:logic)<suspends>:int =
@@ -154,6 +162,60 @@ prism_selftest_component<public> := class<final_super>(component):
         Rec := Probe.ToRecord(0.0)
         if (FitsInPlayerMap[Rec]) then true else false
 
+    # Bytes of a record in a player map: the limit minus the longest Pad that still fits (one byte per character), found
+    # by bisection with one FitsInPlayerMap per frame.
+    RecordBytes<private>(Case:names_case)<suspends>:int =
+        var Low:int = 0
+        var High:int = 262144
+        loop:
+            if (High - Low <= 1):
+                break
+            Sleep(0.0)
+            Middle := Quotient[Low + High, 2] or Low
+            Fit := PadFits(Case, Middle)
+            if (Fit?):
+                set Low = Middle
+            else:
+                set High = Middle
+        262144 - Low
+
+    PadFits<private>(Case:names_case, Length:int):logic =
+        Pad:string = for (Index := 1..Length) { 'a' }
+        case (Case):
+            names_case.LongEmpty => if (FitsInPlayerMap[names_long{}.ToRecord(NamesNow).WithPad(Pad)]) then true else false
+            names_case.ShortEmpty => if (FitsInPlayerMap[names_short{}.ToRecord(NamesNow).WithPad(Pad)]) then true else false
+            names_case.LongPlayed => if (FitsInPlayerMap[PlayedLong().WithPad(Pad)]) then true else false
+            names_case.ShortPlayed => if (FitsInPlayerMap[PlayedShort().WithPad(Pad)]) then true else false
+
+    # A player well into the game: 300 mines, 40 pets, 8 stacks, 30 cells. The same data in both formats.
+    PlayedLong<private>()<transacts>:names_long_record =
+        Save := names_long{}
+        Save.SetCoins(1234567.5)
+        Save.SetLuckLevel(25)
+        Save.SetPedestalLevel(6)
+        Save.SetDroneCount(6)
+        Save.SetAutoRollOn(true)
+        Save.SetBoostOres(array{3, 7, 12})
+        Save.SetInventory(for (Ore := 1..8) { long_stack{OreId := Ore, Count := 40 + Ore} })
+        Save.SetMines(for (Id := 1..300) { long_mine{Id := Id, OreId := 7, X := 1000.5 + 1.0 * Id, Y := -678.25, Turns := 1, Level := 12, Mutation := 2} })
+        Save.SetUnlockedCells(for (Cell := 1..30) { Cell })
+        Save.SetOwnedPets(for (Uid := 1..40) { long_pet{Uid := Uid, PetId := 5, Fusion := 1, Equipped := if (Uid <= 3) then true else false} })
+        Save.ToRecord(NamesNow)
+
+    PlayedShort<private>()<transacts>:names_short_record =
+        Save := names_short{}
+        Save.SetCoins(1234567.5)
+        Save.SetLuckLevel(25)
+        Save.SetPedestalLevel(6)
+        Save.SetDroneCount(6)
+        Save.SetAutoRollOn(true)
+        Save.SetBoostOres(array{3, 7, 12})
+        Save.SetInventory(for (Ore := 1..8) { short_stack{OreId := Ore, Count := 40 + Ore} })
+        Save.SetMines(for (Id := 1..300) { short_mine{Id := Id, OreId := 7, X := 1000.5 + 1.0 * Id, Y := -678.25, Turns := 1, Level := 12, Mutation := 2} })
+        Save.SetUnlockedCells(for (Cell := 1..30) { Cell })
+        Save.SetOwnedPets(for (Uid := 1..40) { short_pet{Uid := Uid, PetId := 5, Fusion := 1, Equipped := if (Uid <= 3) then true else false} })
+        Save.ToRecord(NamesNow)
+
     # One group at a time, each in its own task, so every group reports before the final count.
     CheckStoresWhenReady<private>()<suspends>:void =
         if (Playspace := Entity.GetPlayspaceForEntity[], Who := Playspace.GetPlayers()[0]):
@@ -181,14 +243,14 @@ prism_selftest_component<public> := class<final_super>(component):
         Expect("nothing is written before the first real change", if (not PlayerStateSaves[GetSession()][Who]) then true else false)
         State.SetCoins(77.0)
         PlayerStateStore.Pump(0.0)
-        Expect("a change is written at the next pump", if (Saved := PlayerStateSaves[GetSession()][Who], Saved.Coins = 77.0, not State.Dirty?) then true else false)
+        Expect("a change is written at the next pump", if (Saved := PlayerStateSaves[GetSession()][Who], Saved.GetCoins() = 77.0, not State.Dirty?) then true else false)
         State.AddCoins(1.0)
         State.Commit()
         PlayerStateStore.Pump(30.0)
-        Expect("Commit writes even when writes are spaced out", if (Saved := PlayerStateSaves[GetSession()][Who], Saved.Coins = 78.0) then true else false)
+        Expect("Commit writes even when writes are spaced out", if (Saved := PlayerStateSaves[GetSession()][Who], Saved.GetCoins() = 78.0) then true else false)
         State.AddCoins(1.0)
         PlayerStateStore.Pump(30.0)
-        Expect("FlushSeconds spaces out the writes of a player", if (Saved := PlayerStateSaves[GetSession()][Who], Saved.Coins = 78.0, State.Dirty?) then true else false)
+        Expect("FlushSeconds spaces out the writes of a player", if (Saved := PlayerStateSaves[GetSession()][Who], Saved.GetCoins() = 78.0, State.Dirty?) then true else false)
         PlayerStateStore.Reset(Who)
         Expect("Reset gives a fresh player", if (State.Coins = StartCoins, State.Mines.Length = 0) then true else false)
 
@@ -209,15 +271,15 @@ prism_selftest_component<public> := class<final_super>(component):
         Probe := SizeProbeStore.Acquire(Who)
         Probe.SetTrail(for (Step := 1..15000) { Step })
         SizeProbeStore.FlushNow(Who)
-        Expect("a record over the budget that fits for real is written whole", if (Saved := SizeProbeSaves[GetSession()][Who], Saved.Trail.Length = 15000) then true else false)
+        Expect("a record over the budget that fits for real is written whole", if (Saved := SizeProbeSaves[GetSession()][Who], Saved.GetTrail().Length = 15000) then true else false)
 
     # Far above the limit: no FitsInPlayerMap at all, the @trim list is cut by arithmetic in one copy.
     CheckHugeRecord<private>(Who:player)<suspends>:void =
         Probe := SizeProbeStore.Acquire(Who)
         Probe.SetTrail(for (Step := 1..400000) { Step })
         SizeProbeStore.FlushNow(Who)
-        if (Saved := SizeProbeSaves[GetSession()][Who], Last := Saved.Trail[Saved.Trail.Length - 1]):
-            Print("[prism selftest] Trail kept {Saved.Trail.Length} of 400000 items")
-            Expect("a huge list is trimmed from the head, by arithmetic, to fit the budget", if (Saved.Trail.Length < 400000, Last = 400000, Saved.PrismSize() <= PrismPlayerMapBudget) then true else false)
+        if (Saved := SizeProbeSaves[GetSession()][Who], Trail := Saved.GetTrail(), Last := Trail[Trail.Length - 1]):
+            Print("[prism selftest] Trail kept {Trail.Length} of 400000 items")
+            Expect("a huge list is trimmed from the head, by arithmetic, to fit the budget", if (Trail.Length < 400000, Last = 400000, Saved.PrismSize() <= PrismPlayerMapBudget) then true else false)
         else:
             Expect("a huge list is trimmed from the head, by arithmetic, to fit the budget", false)

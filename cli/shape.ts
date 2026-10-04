@@ -1,13 +1,17 @@
-import { columnType, persistedFields, type Field, type ModelDecl, type Schema, type TypeDecl } from "./schema.ts";
+import { codesOf, savedKeys } from "./naming.ts";
+import { columnType, flatType, persistedFields, type Field, type ModelDecl, type Schema, type TypeDecl } from "./schema.ts";
 import { persistedDefault, verseType } from "./verse_text.ts";
 
 // One field of a persisted record class, as it appears in the saved data.
 export interface ShapeField {
-  name: string;
+  name: string; // the saved name: a short code by default, the @map name, or the field name for a type
+  key: string; // stable identity: "Coins", "Mines.OreId", "Home.X"
+  helper: string; // readable name of the record's With*/Get* helpers: "Coins", "MinesOreId", "HomeX"
   type: string;
   default: string;
-  field: Field; // the schema field; for a column, the field of the item type
-  list?: Field; // for a column, the list it belongs to
+  field: Field; // the schema field; for a column or a flattened field, the field of the type
+  list?: Field; // a column of this list
+  parent?: Field; // a field of this flattened type
 }
 
 export interface ShapeRecord {
@@ -16,32 +20,35 @@ export interface ShapeRecord {
   fields: ShapeField[];
 }
 
-export function columnName(list: Field, field: Field): string {
-  return `${list.persisted}_${field.persisted}`;
-}
-
-// A list of a flat type is saved as one array per field of the type ("columns"), without per-item metadata.
+// A model record: lists of flat types become one array per field, single flat types their own fields, and every
+// saved name is short unless @map or `names = "long"` says otherwise. A type keeps its field names (it is also the
+// in-memory value the game uses).
 export function shapeFields(schema: Schema, d: ModelDecl | TypeDecl): ShapeField[] {
-  const out: ShapeField[] = [];
-  for (const f of persistedFields(d)) {
-    const columns = columnType(f);
-    if (!columns) {
-      out.push({ name: f.persisted, type: verseType(f.type), default: persistedDefault(schema, f), field: f });
-      continue;
-    }
-    for (const c of columns.fields) {
-      out.push({ name: columnName(f, c), type: `[]${verseType(c.type)}`, default: "array{}", field: c, list: f });
-    }
+  if (d.kind === "type") {
+    return persistedFields(d).map((f) => ({ name: f.persisted, key: f.name, helper: f.persisted, type: verseType(f.type), default: persistedDefault(schema, f), field: f }));
   }
-  return out;
+  const codes = codesOf(schema, d);
+  return savedKeys(d).map((k) => {
+    const name = codes.get(k.key) ?? k.long;
+    const helper = k.key.replace(".", "");
+    if (k.list) return { name, key: k.key, helper, type: `[]${verseType(k.field.type)}`, default: "array{}", field: k.field, list: k.list };
+    const sf: ShapeField = { name, key: k.key, helper, type: verseType(k.field.type), default: persistedDefault(schema, k.field), field: k.field };
+    if (k.parent) sf.parent = k.parent;
+    return sf;
+  });
 }
 
-// Types saved as objects somewhere: single fields, options and @@rows lists, reachable from a model.
+export function savedName(schema: Schema, m: ModelDecl, key: string): string {
+  return codesOf(schema, m).get(key) ?? key;
+}
+
+// Types saved as objects somewhere: single fields and options that can't be flattened, @@rows lists, reachable from
+// a model.
 export function rowTypes(schema: Schema): TypeDecl[] {
   const seen = new Set<TypeDecl>();
   const visit = (d: ModelDecl | TypeDecl): void => {
     for (const f of persistedFields(d)) {
-      if (f.type.base.kind !== "record" || columnType(f)) continue;
+      if (f.type.base.kind !== "record" || columnType(f) || flatType(f)) continue;
       const t = f.type.base.decl;
       if (seen.has(t)) continue;
       seen.add(t);

@@ -1,4 +1,5 @@
-// The same mines saved as objects (@@rows) and in columns, for the self-test's size measurement, plus a long trail to trim.
+// The same mines saved as objects (@@rows) and in columns, for the self-test's size measurement, a long trail to trim
+// and a flattened point.
 
 datasource {
   kind = "memory"
@@ -12,6 +13,12 @@ model SizeProbe {
   RowMines    RowMine[]    @maxItems(100000)
   ColumnMines ColumnMine[] @maxItems(100000)
   Trail       Int[]        @trim(head)
+  Origin      Point
+}
+
+type Point {
+  X Float
+  Y Float
 }
 
 type RowMine {

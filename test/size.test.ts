@@ -61,8 +61,13 @@ function serializeRecord(d: ModelDecl | TypeDecl, v: { [k: string]: Value }, sch
     return `{${parts.join(",")}}`;
   }
   for (const sf of shapeFields(schema, d)) {
+    if (sf.parent) {
+      const inner = v[sf.parent.persisted] as { [k: string]: Value };
+      parts.push(`"x_${sf.name}":${serialize(sf.field.type, inner[sf.field.persisted]!, schema)}`);
+      continue;
+    }
     if (!sf.list) {
-      parts.push(`"x_${sf.name}":${serialize(sf.field.type, v[sf.name]!, schema)}`);
+      parts.push(`"x_${sf.name}":${serialize(sf.field.type, v[sf.field.persisted]!, schema)}`);
       continue;
     }
     const items = v[sf.list.persisted] as { [k: string]: Value }[];
@@ -73,11 +78,13 @@ function serializeRecord(d: ModelDecl | TypeDecl, v: { [k: string]: Value }, sch
 }
 
 // What the generated PrismSize returns for this value.
-function prismSize(d: ModelDecl | TypeDecl, v: { [k: string]: Value }): number {
-  const { constant, terms } = sizeTerms(d);
+function prismSize(schema: Schema, d: ModelDecl | TypeDecl, v: { [k: string]: Value }): number {
+  const { constant, terms } = sizeTerms(schema, d);
+  const shape = shapeFields(schema, d);
   let total = constant;
   for (const t of terms) {
-    const x = v[t.field.persisted]!;
+    const parent = t.kind === "columns" ? undefined : shape.find((f) => f.name === t.name)?.parent;
+    const x = parent ? (v[parent.persisted] as { [k: string]: Value })[t.field.persisted]! : v[t.field.persisted]!;
     switch (t.kind) {
       case "fixedList":
         total += (x as Value[]).length * t.itemBytes;
@@ -86,7 +93,7 @@ function prismSize(d: ModelDecl | TypeDecl, v: { [k: string]: Value }): number {
         for (const s of x as string[]) total += s.length * COST.stringChar + COST.stringBase + COST.item;
         break;
       case "recordList":
-        for (const r of x as { [k: string]: Value }[]) total += prismSize(t.decl, r) + COST.item;
+        for (const r of x as { [k: string]: Value }[]) total += prismSize(schema, t.decl, r) + COST.item;
         break;
       case "string":
         total += (x as string).length * COST.stringChar;
@@ -95,16 +102,16 @@ function prismSize(d: ModelDecl | TypeDecl, v: { [k: string]: Value }): number {
         if (x !== null) total += (x as string).length * COST.stringChar + COST.stringBase;
         break;
       case "optionRecord":
-        if (x !== null) total += prismSize(t.decl, x as { [k: string]: Value });
+        if (x !== null) total += prismSize(schema, t.decl, x as { [k: string]: Value });
         break;
       case "record":
-        total += prismSize(t.decl, x as { [k: string]: Value });
+        total += prismSize(schema, t.decl, x as { [k: string]: Value });
         break;
       case "columns": {
         const items = x as { [k: string]: Value }[];
         total += items.length * t.rowBytes;
         for (const name of t.strings) {
-          const field = t.decl.fields.find((f) => `${t.field.persisted}_${f.persisted}` === name)!;
+          const field = shape.find((f) => f.name === name)!.field;
           for (const item of items) total += (item[field.persisted] as string).length * COST.stringChar + COST.stringBase + COST.item;
         }
         break;
@@ -157,7 +164,7 @@ for (const [name, text] of [
       for (const items of [0, 1, 7, 64]) {
         const value = record(d, items);
         const json = serializeRecord(d, value, schema).length;
-        const bound = prismSize(d, value);
+        const bound = prismSize(schema, d, value);
         assert.ok(bound >= json, `${d.recordClass} with ${items} items: PrismSize ${bound} < JSON ${json}`);
       }
     }

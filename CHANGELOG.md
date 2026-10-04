@@ -1,6 +1,30 @@
 # Changelog
 
-## 0.2.1 (unreleased)
+## 0.3.0 (2026-10-04)
+
+- **Short saved names.** Each saved field of a model is saved under a name of one or two characters, derived from a
+  hash of its schema name: reordering fields changes nothing, and a name is never a Verse keyword, a built-in or a
+  module of the project. The model's API doesn't change. The record's own fields carry the short names; read and
+  write them with `Get<Field>()` and `With<Field>(V)`, named after the schema fields. On the SellThings save, the 35
+  saved names shrink from 385 characters to 46.
+- `prism/<schema>/names.json` records the names: commit it. A new field never takes an existing name, and the name
+  of a removed field stays reserved. `generate --check` fails when the file is out of date, and an unreadable one
+  stops generation (`P109`).
+- Published shapes record each field's API name next to its saved name, so `lock` freezes the names. Renaming a
+  published field needs `@map` with its saved name, and `P101` prints the line to write. Shapes published by 0.2
+  keep their readable names.
+- `@map` still picks a name, `names = "long"` in the `generator` block saves the schema names, and `import` puts
+  `@map` on every model field so an adopted format never moves.
+- **Flattening.** A single field of a flat type held by a model is saved as fields of the record, without an object.
+  A published object that would now be flattened or split into columns is reported (`P101`, `P104`) with the
+  `@@rows` that keeps it.
+- New command: `prism-verse names <schema>` prints the table; `lock` prints it too.
+- Upgrading an unpublished 0.2 schema moves its saved names to short ones, so data saved under the 0.2 names during
+  development is not read back. Set `names = "long"` to keep it (and `@@rows` on a type held as a single field).
+- Examples: `migration` shows the rename on top of a published shape, `measure` compares readable and short names
+  in the self-test, and the coverage fixture adds a flattened field and an option of a flat type.
+
+## 0.2.1 (2026-10-04)
 
 - `ChangedFields` holds the fields of the batch that `Changed` signals, so a listener can wake once per batch and
   skip the changes it doesn't show.

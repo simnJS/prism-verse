@@ -1,17 +1,32 @@
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { basename, dirname, join } from "node:path";
 import { test } from "node:test";
+import { Reporter } from "../cli/diagnostics.ts";
 import { generate, type GeneratedFile } from "../cli/generate.ts";
 import { schemaHash } from "../cli/hash.ts";
+import { parseSnapshot, type Snapshot } from "../cli/lock.ts";
+import { assignCodes, parseNames, publishedCodes } from "../cli/naming.ts";
+import type { Schema } from "../cli/schema.ts";
+import { SourceFile } from "../cli/source.ts";
 import { analyze, ROOT, UPDATE } from "./helpers.ts";
+
+// Saved names as the CLI assigns them: published shapes, then names.json, both next to the schema.
+function assignAsCli(schema: Schema, schemaPath: string): void {
+  const dir = join(ROOT, dirname(schemaPath), "prism", basename(schemaPath, ".prism"));
+  const files = existsSync(dir) ? readdirSync(dir).filter((n) => /^\d{4}\.json$/.test(n)).sort() : [];
+  const shapes = files.map((n) => parseSnapshot(new SourceFile(n, readFileSync(join(dir, n), "utf8")), new Reporter())).filter((s): s is Snapshot => s !== undefined);
+  const names = existsSync(join(dir, "names.json")) ? parseNames(readFileSync(join(dir, "names.json"), "utf8")) : undefined;
+  schema.codes = assignCodes(schema, publishedCodes(shapes), names ?? new Map(), new Set());
+}
 
 function build(schemaPath: string, tweak: (text: string) => string = (t) => t, kind?: "player" | "memory"): GeneratedFile[] {
   const text = tweak(readFileSync(join(ROOT, schemaPath), "utf8"));
   const { schema, codes, rendered } = analyze(text);
   assert.deepEqual(codes, [], `${schemaPath} has errors:\n${rendered}`);
   if (kind) schema.settings.kind = kind;
-  return generate(schema, { lib: "Prism", schemaName: "save.prism", schemaHash: schemaHash(text) });
+  assignAsCli(schema, schemaPath);
+  return generate(schema, { lib: "Prism", schemaName: basename(schemaPath), schemaHash: schemaHash(text) });
 }
 
 function compare(files: GeneratedFile[], dir: string): void {
@@ -28,6 +43,7 @@ function compare(files: GeneratedFile[], dir: string): void {
 test("the examples hold the current generated output", () => {
   compare(build("examples/quickstart/save.prism", undefined, "memory"), "examples/quickstart");
   for (const example of ["sellthings", "migration", "measure"]) compare(build(`examples/${example}/save.prism`), `examples/${example}`);
+  for (const variant of ["names_long", "names_short"]) compare(build(`examples/measure/${variant}.prism`), "examples/measure");
 });
 
 test("golden: the coverage schema (every feature, compiled in UEFN)", () => {

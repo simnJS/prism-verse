@@ -1,0 +1,18 @@
+{
+  "format": 1,
+  "records": {
+    "size_probe_record": {
+      "ColumnMines.Id": "y",
+      "ColumnMines.Level": "i",
+      "ColumnMines.Mutation": "n",
+      "ColumnMines.OreId": "s",
+      "ColumnMines.Turns": "j",
+      "ColumnMines.X": "c",
+      "ColumnMines.Y": "g",
+      "Origin.X": "e",
+      "Origin.Y": "w",
+      "RowMines": "m",
+      "Trail": "r"
+    }
+  }
+}

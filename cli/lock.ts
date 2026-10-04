@@ -1,6 +1,6 @@
 import type { Diagnostic, Reporter } from "./diagnostics.ts";
 import { sha256 } from "./hash.ts";
-import type { Schema } from "./schema.ts";
+import { columnType, flatType, persistedFields, type Schema } from "./schema.ts";
 import { persistedRecords, type ShapeField, type ShapeRecord } from "./shape.ts";
 import type { SourceFile, Span } from "./source.ts";
 
@@ -41,7 +41,7 @@ export function buildSnapshot(schema: Schema): Snapshot {
   for (const r of persistedRecords(schema).sort((a, b) => a.recordClass.localeCompare(b.recordClass))) {
     records[r.recordClass] = r.fields.map((f) => {
       const locked: LockedField = { name: f.name, type: f.type, default: f.default };
-      if (!f.list && f.field.name !== f.name) locked.api = f.field.name;
+      if (r.decl.kind === "model" || f.key !== f.name) locked.api = f.key;
       return locked;
     });
   }
@@ -188,7 +188,12 @@ export function compareSnapshot(schema: Schema, lock: Snapshot, reporter: Sink):
   for (const [record, fields] of Object.entries(lock.records)) {
     const d = decls.get(record);
     if (!d) {
-      if (!reportedRecords.has(record)) {
+      const unsaved = schema.models.flatMap((m) => persistedFields(m)).map((f) => columnType(f) ?? flatType(f)).find((t) => t?.recordClass === record);
+      if (unsaved) {
+        reporter.error("P104", `\`${record}\` was saved as objects and no longer is`, at(unsaved.node.name.span), {
+          help: `add \`@@rows\` to \`type ${unsaved.name}\` to keep the published format`,
+        });
+      } else if (!reportedRecords.has(record)) {
         reporter.error("P104", `record \`${record}\` was removed or renamed`, at(top), { help: `restore the type, with \`@@map("${record}")\` if you renamed it` });
       }
       continue;
@@ -204,12 +209,12 @@ export function compareSnapshot(schema: Schema, lock: Snapshot, reporter: Sink):
       }
       const f = sf.field;
       if (sf.type !== lf.type && !mentionsMissing(lf.type)) {
-        reporter.error("P102", `persisted field \`${lf.name}\` changed type from \`${lf.type}\` to \`${sf.type}\``, at(f.node.type.span), {
-          help: `keep \`${lf.name}\` as it was (mark it \`@deprecated\`), add a new field and convert it in a \`@@migrate\` step`,
+        reporter.error("P102", `persisted field ${fieldLabel(lf)} changed type from \`${lf.type}\` to \`${sf.type}\``, at(f.node.type.span), {
+          help: `keep \`${sf.key}\` as it was (mark it \`@deprecated\`), add a new field and convert it in a \`@@migrate\` step`,
         });
       }
       if (sf.type === lf.type && sf.default !== lf.default) {
-        reporter.error("P103", `persisted default of \`${f.name}\` changed from \`${lf.default}\` to \`${sf.default}\``, at((f.def ?? f.node.name).span), {
+        reporter.error("P103", `persisted default of \`${sf.key}\` changed from \`${lf.default}\` to \`${sf.default}\``, at((f.def ?? f.node.name).span), {
           label: `saves written before this field existed would load ${sf.default}`,
           help: `keep \`= ${verseToSchema(lf.default)}\`; use \`@initial(${f.def ? schema.file.text.slice(f.def.span.start, f.def.span.end) : verseToSchema(sf.default)})\` to give new players another value`,
         });
@@ -231,28 +236,39 @@ export function compareSnapshot(schema: Schema, lock: Snapshot, reporter: Sink):
   }
 }
 
+// "`Coins`", or "`Level` (saved as `b`)" when the saved name is a code or an @map name.
+function fieldLabel(lf: LockedField): string {
+  const api = lf.api ?? lf.name;
+  return api === lf.name ? `\`${api}\`` : `\`${api}\` (saved as \`${lf.name}\`)`;
+}
+
 function reportRemoved(schema: Schema, r: ShapeRecord, lf: LockedField, lockedNames: Set<string>, reporter: Sink): void {
   const d = r.decl;
   const apiName = lf.api ?? lf.name;
-  const remapped = d.fields.find((f) => f.name === apiName && !f.transient && f.persisted !== lf.name);
+  const remapped = r.fields.find((f) => f.key === apiName && f.name !== lf.name);
   const sameName = d.fields.find((f) => f.name === apiName);
-  const newcomer = r.fields.find((f) => !f.list && !lockedNames.has(f.name) && f.type === lf.type)?.field;
-  const column = /^(\w+)_(\w+)$/.exec(lf.name);
-  let help = column && d.fields.some((f) => f.persisted === column[1])
-    ? `\`${lf.name}\` is a column of \`${column[1]}\`: put the field \`${column[2]}\` back in its type, marked \`@deprecated\` if unused`
-    : `put it back as \`${lf.name} ${schemaType(lf.type)} = ${verseToSchema(lf.default)} @deprecated\``;
+  const reshaped = sameName && !sameName.transient ? (columnType(sameName) ?? flatType(sameName)) : undefined;
+  const newcomer = r.fields.find((f) => !lockedNames.has(f.name) && f.type === lf.type && !f.key.includes("."));
+  const part = /^(\w+)\.(\w+)$/.exec(apiName);
+  const owner = part ? d.fields.find((f) => f.name === part[1]) : undefined;
+  let help = part && owner
+    ? `\`${apiName}\` is the field \`${part[2]}\` of the type of \`${owner.name}\`: put it back in that type, marked \`@deprecated\` if unused`
+    : `put it back as \`${apiName} ${schemaType(lf.type)} = ${verseToSchema(lf.default)} @deprecated${apiName === lf.name ? "" : ` @map("${lf.name}")`}\``;
   let span = d.node.name.span;
   if (remapped) {
-    help = `\`${remapped.name}\` was saved as \`${lf.name}\`: restore \`@map("${lf.name}")\``;
-    span = remapped.node.name.span;
+    help = `\`${apiName}\` was saved as \`${lf.name}\`: restore \`@map("${lf.name}")\``;
+    span = (remapped.parent ?? remapped.list ?? remapped.field).node.name.span;
+  } else if (reshaped && sameName) {
+    help = `\`${apiName}\` was saved as ${sameName.type.container === "list" ? "a list of objects" : "an object"}: add \`@@rows\` to \`type ${reshaped.name}\` to keep that format`;
+    span = sameName.node.name.span;
   } else if (sameName?.transient) {
     help = "a saved field can't become `@transient`: keep it saved, or mark it `@deprecated` and add a transient field with another name";
     span = sameName.node.name.span;
   } else if (newcomer) {
-    help = `if \`${newcomer.name}\` is \`${lf.name}\` renamed, keep the saved name: \`${newcomer.name} ${schemaType(lf.type)} @map("${lf.name}")\``;
-    span = newcomer.node.name.span;
+    help = `if \`${newcomer.key}\` is \`${apiName}\` renamed, keep the saved name: \`${newcomer.key} ${schemaType(lf.type)} @map("${lf.name}")\``;
+    span = newcomer.field.node.name.span;
   }
-  reporter.error("P101", `persisted field \`${lf.name}\` of \`${d.recordClass}\` was removed`, { file: schema.file, span }, { help });
+  reporter.error("P101", `persisted field ${fieldLabel(lf)} of \`${d.recordClass}\` was removed`, { file: schema.file, span }, { help });
 }
 
 function schemaType(verse: string): string {

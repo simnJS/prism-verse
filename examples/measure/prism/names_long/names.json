@@ -1,0 +1,43 @@
+{
+  "format": 1,
+  "records": {
+    "names_long_record": {
+      "AutoRollLevel": "AutoRollLevel",
+      "AutoRollOn": "AutoRollOn",
+      "BoostOres": "BoostOres",
+      "Coins": "Coins",
+      "CrateCount": "CrateCount",
+      "CrateValue": "CrateValue",
+      "DroneCount": "DroneCount",
+      "DroneSpeedLevel": "DroneSpeedLevel",
+      "FirstSeen": "FirstSeen",
+      "FurnaceLevel": "FurnaceLevel",
+      "FuserBuilt": "FuserBuilt",
+      "Inventory.Count": "Inventory_Count",
+      "Inventory.OreId": "Inventory_OreId",
+      "LastSeen": "LastSeen",
+      "LuckLevel": "LuckLevel",
+      "Mines.Id": "Mines_Id",
+      "Mines.Level": "Mines_Level",
+      "Mines.Mutation": "Mines_Mutation",
+      "Mines.OreId": "Mines_OreId",
+      "Mines.Turns": "Mines_Turns",
+      "Mines.X": "Mines_X",
+      "Mines.Y": "Mines_Y",
+      "NextMineId": "NextMineId",
+      "NextPetUid": "NextPetUid",
+      "OwnedPets.Equipped": "OwnedPets_Equipped",
+      "OwnedPets.Fusion": "OwnedPets_Fusion",
+      "OwnedPets.PetId": "OwnedPets_PetId",
+      "OwnedPets.Uid": "OwnedPets_Uid",
+      "Pad": "Pad",
+      "PedestalLevel": "PedestalLevel",
+      "RegenLevel": "RegenLevel",
+      "SaveCount": "SaveCount",
+      "TutorialStep": "TutorialStep",
+      "UnlockedCells": "UnlockedCells",
+      "Version": "Version",
+      "YieldLevel": "YieldLevel"
+    }
+  }
+}

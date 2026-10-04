@@ -1,0 +1,36 @@
+{
+  "format": 1,
+  "records": {
+    "coverage_profile": {
+      "Badges": "d",
+      "Best": "u",
+      "Featured.Count": "fl",
+      "Featured.Name": "nm",
+      "Featured.Ratio": "ft",
+      "Featured.Shiny": "he",
+      "Featured.Tier": "l1",
+      "First": "b",
+      "History": "y",
+      "Home": "x",
+      "Last": "k",
+      "Motto": "i",
+      "Muted": "o",
+      "Name": "m",
+      "NextSpot": "z",
+      "OldName": "e",
+      "Pinned": "p",
+      "Rank": "t",
+      "Saves": "n",
+      "Scale": "f",
+      "Spare": "al",
+      "Spots": "j",
+      "Titles": "v",
+      "Trophies.Count": "i2",
+      "Trophies.Name": "s",
+      "Trophies.Ratio": "c",
+      "Trophies.Shiny": "r",
+      "Trophies.Tier": "uy",
+      "Version": "sa"
+    }
+  }
+}

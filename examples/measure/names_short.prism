@@ -1,0 +1,61 @@
+// The persisted fields of the SellThings save with short saved names (the default), for the self-test's size measurement.
+// Pad fills the rest of the player map: the longest Pad that fits gives the size of the other fields.
+
+datasource {
+  kind = "memory"
+}
+
+generator {
+  prefix = "names_short"
+}
+
+model NamesShort {
+  Version         Int   = 1 @version
+  Coins           Float
+  CrateCount      Int
+  CrateValue      Float
+  LuckLevel       Int
+  PedestalLevel   Int
+  RegenLevel      Int
+  YieldLevel      Int
+  AutoRollLevel   Int
+  FurnaceLevel    Int
+  AutoRollOn      Bool
+  DroneCount      Int   = 1
+  DroneSpeedLevel Int
+  FuserBuilt      Bool
+  BoostOres       Int[]           @maxItems(8)
+  Inventory       ShortStack[]     @maxItems(32)
+  Mines           ShortMine[]      @maxItems(1000)
+  NextMineId      Int   = 1
+  UnlockedCells   Int[]           @maxItems(64)
+  OwnedPets       ShortPet[]       @maxItems(200)
+  NextPetUid      Int   = 1
+  TutorialStep    Int
+  LastSeen        Float           @lastSeen
+  FirstSeen       Float           @firstSeen
+  SaveCount       Int             @saveCount
+  Pad             String
+}
+
+type ShortStack {
+  OreId Int
+  Count Int
+}
+
+type ShortMine {
+  Id       Int @id
+  OreId    Int
+  X        Float
+  Y        Float
+  Turns    Int
+  Level    Int
+  Mutation Int
+}
+
+type ShortPet {
+  Uid      Int @id
+  PetId    Int
+  Fusion   Int
+  Equipped Bool
+}

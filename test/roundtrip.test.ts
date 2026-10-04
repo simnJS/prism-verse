@@ -47,8 +47,8 @@ test("import keeps a published format: types are imported with @@rows", () => {
 
 test("check reports a missing field, a type change and an extra field", () => {
   const text = importSchema(scan, ["save_format.verse"], new Reporter())
-    .replace(/  CrateWorth +Float\n/, "  CrateWorthX     Float\n")
-    .replace(/  TutorialStep +Int\n/, "  TutorialStep    Float\n");
+    .replace('@map("CrateWorth")', '@map("CrateWorthX")')
+    .replace(/  TutorialStep +Int /, "  TutorialStep    Float ");
   const imported = analyze(text);
   assert.deepEqual(imported.codes, [], imported.rendered);
   const check = new Reporter();
