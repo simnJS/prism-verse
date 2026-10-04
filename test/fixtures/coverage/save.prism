@@ -1,0 +1,46 @@
+// Every feature at once, to compile all generated shapes in UEFN (see CONTRIBUTING.md).
+
+datasource {
+  kind = "player"
+}
+
+generator {
+  prefix       = "coverage"
+  methodPrefix = "Db"
+}
+
+model PlayerProfile {
+  Version   Int    = 1   @version
+  OldName   String       @deprecated
+  Name      String = "Player \"one\" {x}" @initial("New player")
+  Titles    String[]     @maxItems(8)
+  Motto     String?
+  Rank      Rank   = Rank.Bronze
+  Badges    Rank[]       @valid(IsKnownRank, Rank.Bronze) @maxItems(16)
+  Best      Rank?
+  Home      Spot
+  Pinned    Spot?        @valid(IsGoodSpot)
+  Spots     Spot[]       @where(IsGoodSpot) @maxItems(32) @trim(tail, 2)
+  NextSpot  Int    = 1   @counter(Spots.Uid)
+  History   Int[]        @trim(head) @item("Entry")
+  Scale     Float  = 1.0 @min(0.5) @max(4.0)
+  Muted     Bool
+  Saves     Int          @saveCount
+  First     Float        @firstSeen
+  Last      Float        @lastSeen
+  Cursor    Int    = -1  @transient
+
+  @@map("coverage_profile")
+  @@store("CoverageSaves")
+  @@onLoad(CoverageLoaded)
+  @@migrate(2, CoverageRename)
+}
+
+type Spot {
+  Uid   Int    @id
+  Label String
+  Level Int    @min(0) @max(9)
+  Kind  Rank?
+}
+
+enum Rank { Bronze Silver Gold }

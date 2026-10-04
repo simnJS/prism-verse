@@ -1,0 +1,51 @@
+{
+  "name": "prism-verse",
+  "version": "0.1.0",
+  "description": "Typed player data for UEFN Verse: one schema, generated persistence, migrations and a lock that refuses breaking changes.",
+  "license": "MIT",
+  "author": "simnJS",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/simnJS/prism-verse.git"
+  },
+  "homepage": "https://github.com/simnJS/prism-verse#readme",
+  "bugs": {
+    "url": "https://github.com/simnJS/prism-verse/issues"
+  },
+  "type": "module",
+  "bin": {
+    "prism-verse": "dist/prism.js"
+  },
+  "files": [
+    "dist",
+    "runtime",
+    "examples",
+    "docs",
+    "README.md",
+    "LICENSE",
+    "CHANGELOG.md"
+  ],
+  "engines": {
+    "node": ">=22.18"
+  },
+  "scripts": {
+    "build": "esbuild cli/bin.ts --bundle --platform=node --format=esm --target=node22 --outfile=dist/prism.js --banner:js=\"#!/usr/bin/env node\"",
+    "typecheck": "tsc --noEmit",
+    "test": "node --test \"test/**/*.test.ts\"",
+    "examples": "node cli/bin.ts generate examples/quickstart/save.prism --kind memory --lib Prism && node cli/bin.ts generate examples/sellthings/save.prism --lib Prism && node cli/bin.ts generate test/fixtures/coverage/save.prism --lib Prism",
+    "prepare": "npm run build"
+  },
+  "keywords": [
+    "uefn",
+    "verse",
+    "fortnite",
+    "persistence",
+    "codegen",
+    "schema"
+  ],
+  "devDependencies": {
+    "@types/node": "24.19.1",
+    "esbuild": "0.28.2",
+    "typescript": "7.0.2"
+  }
+}

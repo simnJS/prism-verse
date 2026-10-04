@@ -1,0 +1,72 @@
+// The real SellThings save (PlayerData/player_save.verse and records.verse), field for field.
+// Built in memory mode so the demo never takes one of the island's 4 persistent maps.
+
+datasource {
+  kind = "memory"
+}
+
+generator {
+  prefix = "demo_save"
+  using  = ["prism_demo_constants"]
+}
+
+model PlayerState {
+  Version          Int    = SaveVersion @version
+  LegacyCoins      Int                  @map("Coins") @deprecated
+  LuckLevel        Int                  @min(0) @max(MaxUpgradeLevel)
+  Inventory        InventoryStack[]     @where(IsValidStack) @maxItems(HotbarOreSlots)
+  Mines            PlacedMine[]         @where(IsKnownMine)
+  NextMineId       Int    = 1           @counter(Mines.Id)
+  UnlockedCells    Int[]
+  CrateCount       Int                  @min(0)
+  LegacyCrateValue Int                  @map("CrateValue") @deprecated
+  DroneCount       Int    = StartDrones @min(StartDrones) @max(MaxDrones)
+  DroneSpeedLevel  Int                  @min(0) @max(DroneMaxSpeedLevel)
+  Coins            Float                @map("Money") @initial(StartCoins) @min(0.0)
+  CrateValue       Float                @map("CrateWorth") @min(0.0)
+  PedestalLevel    Int                  @min(0) @max(MaxUpgradeLevel)
+  RegenLevel       Int                  @min(0) @max(MaxUpgradeLevel)
+  YieldLevel       Int                  @min(0) @max(MaxUpgradeLevel)
+  AutoRollLevel    Int                  @min(0) @max(MaxUpgradeLevel)
+  FurnaceLevel     Int                  @min(0) @max(MaxUpgradeLevel)
+  AutoRollOn       Bool
+  LegacyBoostOre   Int    = -1          @map("BoostOre") @deprecated
+  LastSeen         Float                @lastSeen
+  OwnedPets        OwnedPet[]           @where(IsKnownPet) @maxItems(MaxStoredPets)
+  NextPetUid       Int    = 1           @counter(OwnedPets.Uid)
+  FuserBuilt       Bool
+  BoostOres        Int[]                @valid(IsKnownOre, -1) @maxItems(MaxBoostPedestals) @initial([-1])
+  TutorialStep     Int                  @min(0) @max(TutorialSteps)
+
+  Offers           Int[]                @transient @initial([-1])
+  HeldOre          Int    = -1          @transient
+  SalesCount       Int                  @transient
+
+  @@map("player_saved")
+  @@store("SaveStore")
+  @@onLoad(DemoAfterLoad)
+  @@migrate(2, MoneyToFloat)
+  @@migrate(3, SplitBoostOres)
+}
+
+type InventoryStack {
+  OreId Int
+  Count Int
+}
+
+type PlacedMine {
+  Id       Int   @id
+  OreId    Int
+  X        Float
+  Y        Float
+  Turns    Int   @min(0) @max(3)
+  Level    Int   @min(0) @max(MaxOreLevel)
+  Mutation Int   @valid(IsKnownMutation)
+}
+
+type OwnedPet {
+  Uid      Int  @id
+  PetId    Int
+  Fusion   Int  @min(0) @max(MaxPetFusion)
+  Equipped Bool
+}

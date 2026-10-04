@@ -1,0 +1,24 @@
+datasource {
+  kind = "player"
+}
+
+generator {
+  prefix = "player_save"
+}
+
+model PlayerSave {
+  Version     Int   = 1   @version
+  Coins       Float = 0.0 @min(0.0)
+  Level       Int   = 1   @min(1) @max(100)
+  Cards       Card[]      @maxItems(50)
+  NextCard    Int   = 1   @counter(Cards.Uid)
+  RecentDrops Int[]       @trim(head)
+  LastSeen    Float = 0.0 @lastSeen
+  Selected    Int   = -1  @transient
+}
+
+type Card {
+  Uid    Int  = 0 @id
+  Kind   Int  = 0
+  Golden Bool = false
+}
