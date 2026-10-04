@@ -1,6 +1,6 @@
 {
   "name": "prism-verse",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Typed player data for UEFN Verse: one schema, generated persistence, migrations and a lock that refuses breaking changes.",
   "license": "MIT",
   "author": "simnJS",

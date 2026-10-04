@@ -129,6 +129,7 @@ class Generator {
       out.line(1, `var NextCheckAt<internal>:float = 0.0`);
       out.line(1, `var CommitPending<private>:logic = false`);
       out.line(1, `var Touched<private>:[]${enumName} = array{}`);
+      out.line(1, `var<private> ChangedFields<public>:[]${enumName} = array{}`);
       out.blank();
       for (const f of fields) out.line(1, `var<private> ${f.name}<public>:${this.verseType(f.type)} = ${this.initialValue(f)}`);
       for (const f of fields) this.mutators(out, f, members, enumName);
@@ -313,6 +314,7 @@ class Generator {
     out.line(2, `if (Touched.Length > 0):`);
     out.line(3, `${fields} := Touched`);
     out.line(3, `set Touched = array{}`);
+    out.line(3, `set ChangedFields = ${fields}`);
     out.line(3, `for (${field} : ${fields}):`);
     out.line(4, `FieldChanged.Signal(${field})`);
     out.line(3, `Changed.Signal()`);

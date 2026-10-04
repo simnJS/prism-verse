@@ -1,6 +1,11 @@
 # Changelog
 
-## 0.2.0 (unreleased)
+## 0.2.1 (unreleased)
+
+- `ChangedFields` holds the fields of the batch that `Changed` signals, so a listener can wake once per batch and
+  skip the changes it doesn't show.
+
+## 0.2.0 (2026-10-04)
 
 - **Lists in columns.** A list of a flat type held by a model (only `Int`, `Float`, `Bool`, `String` and enum fields)
   is saved as one array per field instead of one object per item, without Verse's per-object metadata. The model's

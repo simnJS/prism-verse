@@ -826,7 +826,8 @@ class Analyzer {
 
 export const MODEL_MEMBERS = [
   "Changed", "FieldChanged", "SaveBlocked", "Dirty", "ReadOnly", "OfflineSeconds", "HasRecord", "NextWriteAt", "NextCheckAt",
-  "Notify", "Commit", "Touched", "CommitPending", "Touch", "TakeCommit", "LoadRecord", "ToRecord", "MarkSaved", "Clear",
+  "Notify", "Commit", "Touched", "ChangedFields", "CommitPending", "Touch", "TakeCommit", "LoadRecord", "ToRecord", "MarkSaved",
+  "Clear",
 ];
 
 export function memberNames(f: Field, prefix: string): string[] {

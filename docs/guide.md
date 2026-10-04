@@ -135,7 +135,7 @@ For `model PlayerSave` (names follow `@@map`, `@@store` and `methodPrefix`):
 | `FindCard[Id]`, `UpsertCard[V]`, `DeleteCard[Id]` | Singular: one item of a list of a type with an `@id`. |
 | `PushEntry[V]`, `SetEntryAt[I, V]`, `DeleteEntryAt[I]` | Singular: one item of any other list (`PushEntry(V)` never fails on a capped `@trim(head)` list). |
 | `TakeNextCard()` | `@counter` fields: returns the next id and advances it. |
-| `Changed`, `FieldChanged`, `Notify()` | Change events. Setters queue them, and the runner signals them every tick. |
+| `Changed`, `FieldChanged`, `ChangedFields`, `Notify()` | Change events. Setters queue them, and the runner signals them every tick: `FieldChanged` once per field, then `Changed` once per batch, with the batch in `ChangedFields`. |
 | `SaveBlocked`, `ReadOnly`, `Dirty`, `OfflineSeconds` | Size block events, newer-save mode, unsaved changes, seconds since the last save. |
 | `Commit()` | Write at the next tick, whatever `FlushSeconds`; rolled back with its transaction. |
 | `(P:player).GetPlayerSave[]` | The loaded model, from the session cache. Safe in an `if` head. |
