@@ -1,6 +1,10 @@
 # prism-verse
 
-**Typed player data for UEFN Verse.** Write your player save once, in a small schema. Prism generates the Verse code
+Typed player data for UEFN Verse: one schema, generated persistence, migrations and a lock that refuses breaking changes.
+
+## What it is
+
+Write your player save once, in a small schema. Prism generates the Verse code
 that loads, validates, migrates and saves it, and refuses any edit that would break saves you have already published.
 
 > **Status: alpha.** Generated code verified with UEFN 42.30: compile and BuildAll for 0.3, and a 33-check self-test
@@ -12,7 +16,7 @@ save.prism ──prism-verse generate──▶ player_save_records.verse   the p
                                      player_save_store.verse     load, validate, migrate, save
 ```
 
-## Why
+### Why
 
 Verse saves player data in a `weak_map(player, record)` of immutable classes. Everything around it is hand-written:
 the persisted class, an in-memory class, a save function and a load function, so each field lives in four places.
@@ -28,15 +32,34 @@ so Prism saves a list of flat items as one array per field ("columns") and rebui
 a live session: a mine takes 208 bytes as an object and 29 bytes in columns, so 7× more fit in the same save. Saved
 field names are one or two characters, and your code never sees them.
 
-## Install
+## Features
+
+- One `.prism` schema generates three Verse files: the persisted records, the model your game uses, and the store
+  that loads, validates, migrates and saves
+- `lock` records the published shape; from then on `generate` refuses any edit that would break published saves,
+  and saved field names are frozen
+- Migrations through `@deprecated` fields and `@@migrate` with a plain Verse function
+- Compact saves: lists of flat items are saved in columns, and saved field names are one or two characters
+- Write guards: at most one write per second per changed player, `Commit()` for immediate writes, size checks that
+  never send an oversized write, and `@trim` for lists
+- `import` turns existing persistable Verse classes into a schema, and `check` compares a schema against published
+  Verse files
+- Error codes with explanations (`prism-verse explain <code>`), with text, JSON and GitHub output formats
+
+## Getting started
+
+### Prerequisites
+
+- Node 22.18 or later
+- A UEFN project
+
+### Install
 
 ```
 npm install -g github:simnJS/prism-verse
 ```
 
-Requires Node 22.18 or later.
-
-## Quickstart
+### Usage
 
 **1. Add the Verse runtime** to your project (once). It prints the line to add to your `modules.verse`.
 
@@ -106,6 +129,26 @@ and the saved names are frozen.
 prism-verse lock Content/Verse/Game/save.prism
 ```
 
+## CLI reference
+
+```
+prism-verse init <dir> [--demo] [--sync]       copy the Verse runtime into your project
+prism-verse generate <schema> [--check]        write the Verse files next to the schema
+prism-verse lock <schema>                      record the published shape (run it when you publish)
+prism-verse check <schema> [--against <file.verse>...]
+prism-verse import <file.verse>... [--out <schema>]
+prism-verse names <schema>                     the saved name (short code) of every field
+prism-verse explain <code>                     what an error code means and how to fix it
+```
+
+| Option | Meaning |
+| :--- | :--- |
+| `--check` | Fail instead of writing when generated files are out of date (`generate`) |
+| `--format text\|json\|github` | Output format |
+| `--lib <path>` | Module path of the runtime in `using` (default: found near the schema) |
+| `--kind memory\|player` | Override `datasource.kind` |
+| `-v`, `--version` | Print the version |
+
 ## Migrations
 
 Published fields can't be removed or retyped. When one changes meaning, keep it as `@deprecated` under its saved
@@ -156,8 +199,26 @@ Good to know: **rolling back an island wipes all player data**, and an island ha
 - [examples/](examples): the quickstart, the save of a real tycoon game ([sellthings](examples/sellthings)), a
   [migration](examples/migration), and the [measures](examples/measure) of the self-test (objects versus columns,
   readable versus short names).
-- [Contributing](CONTRIBUTING.md).
+- [Changelog](CHANGELOG.md).
+
+## Development
+
+```
+npm ci
+npm run typecheck   # tsc --noEmit, strict
+npm test            # node:test, runs the TypeScript sources directly (Node 22.18+)
+npm run build       # dist/prism.js, a single file with no dependency
+```
+
+`npm run examples` regenerates the Verse files of `examples/`. See [Contributing](CONTRIBUTING.md) for the test
+suites and how to verify generated code in UEFN.
+
+## Tech stack
+
+- TypeScript CLI (Node 22.18+), bundled into a single file with esbuild
+- Verse runtime (`runtime/Prism`) copied into the UEFN project by `prism-verse init`
+- Tests with `node:test`; CI on GitHub Actions (Ubuntu and Windows, Node 22 and 24)
 
 ## License
 
-MIT © 2026 simnJS
+MIT © 2026 simnJS, see [LICENSE](LICENSE).
